@@ -1,0 +1,8 @@
+let f = fs.open("./examples/fs.rv"):unwrap()
+let content = f:read()
+f:close()
+print(content[1])
+
+let stat = fs.open("./examples/fs.rv"):unwrap():stat():unwrap()
+print(stat.size)
+print(stat.kind) # "file"

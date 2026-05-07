@@ -1,0 +1,12 @@
+const counter = set_metatable({n=0}, {
+	__iter = fn(self) do
+		fn(idx)
+			if self.n < 3 do
+				self.n = self.n + 1
+				self.n
+			end
+		end
+})
+
+for x in counter:keys()
+	print(x)

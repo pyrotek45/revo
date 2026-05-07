@@ -1,0 +1,15 @@
+fn make_counter(n) do
+  let x = n
+  fn() do
+		x = x + 1
+		x
+	end
+end
+
+const c1 = make_counter(0)
+const c2 = make_counter(1000)
+let acc = 0
+for i in 0..10000
+  acc = acc + c1() + c2()
+
+acc

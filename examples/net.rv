@@ -1,0 +1,25 @@
+let server = net.listen(8765):unwrap()
+
+while :true do
+    let peer = server:accept():unwrap()
+    let msg = peer:recv(256):unwrap()
+    print("server recv: " + msg + "\n")
+    let echo_msg = "echo: " + msg
+    let bytes_echoed = peer:send(echo_msg):unwrap()
+    print("echoed " + tostring(bytes_echoed) + " bytes\n")
+    let stats = "stats: sent " + tostring(bytes_echoed) + " bytes"
+    peer:send(stats):unwrap()
+    peer:close()
+end
+
+# let client = net.connect("localhost", 8765):unwrap()
+# 
+# let msg = "hello server"
+# let bytes_sent = client:send(msg):unwrap()
+# print("sent " + tostring(bytes_sent) + " bytes: " + msg + "\n")
+# let echo_received = client:recv(256):unwrap()
+# print("client recv: " + echo_received + "\n")
+# let stats_received = client:recv(256):unwrap()
+# print("client recv: " + stats_received + "\n")
+# client:close()
+# server:close()

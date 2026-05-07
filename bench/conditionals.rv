@@ -1,0 +1,9 @@
+fn min(a, b) if a < b a else b
+
+fn max(a, b) if a > b a else b
+
+fn clamp(x, lo, hi) max(lo, min(x, hi))
+
+let acc = 0
+
+acc = acc + clamp(1 % 100, 10, 90)

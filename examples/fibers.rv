@@ -1,0 +1,17 @@
+# simple coroutines
+const co = spawn fn() 5
+
+print(join(co))
+
+# producer/consumer over a buffered channel
+const ch = chan(4)
+
+const producer = fn() do
+    for i in 0..4
+				send(ch, i * i)
+end
+
+spawn producer()
+
+for _ in 0..4
+    print(recv(ch))

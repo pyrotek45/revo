@@ -1,0 +1,16 @@
+const worker = fn(ch, id) do
+  for i in 0..1000
+    send(ch, {id, i})
+
+  id
+end
+
+const ch = chan()
+spawn worker(ch, 1)
+spawn worker(ch, 2)
+
+let acc = 0
+for i in 0..2000
+  const msg = recv(ch)
+  acc = acc + msg[0] + msg[1]
+acc

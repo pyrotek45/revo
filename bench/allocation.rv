@@ -1,0 +1,9 @@
+let acc = 0
+
+for i in 0..1000 do
+  const a = {i, i + 1, x = i + 2}
+  const b = {i, i + 1, x = i + 2}
+  acc = acc + a[0] + b.x
+end
+
+acc

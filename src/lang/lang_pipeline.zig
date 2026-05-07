@@ -1,0 +1,205 @@
+pub const default_macro_source =
+    \\const try! = macro `(%what:expr)`
+    \\  `match (%what) | (:ok, v) v | (:err, e) panic(e) | invalid panic(fmt("tried unwrapping %s", invalid))`
+    \\const unless! = macro `(%cond:expr %body:expr)` `if %cond nil else %body`
+    \\const do_all! = macro `(%ITEMS(%item:expr)*)` `do %ITEMS(%item) nil end`
+    \\const all_true! = macro `(%ITEMS(%item:expr)*)` `do :true %ITEMS(and (%item and :true)) end`
+    \\const sum_all! = macro `(%first:expr %REST(%item:expr)*)` `%first %REST(+ %item)`
+    \\const tuple_fst! = macro `(%first:expr %REST(%item:expr)*)` `%first`
+    \\const ok? = macro `(%what:expr)` `%what[0] == :ok`
+    \\const err? = macro `(%what:expr)` `%what[0] == :err`
+    \\const some? = macro `(%what:expr)` `%what[0] == :some`
+    \\const none? = macro `(%what:expr)` `%what[0] == :none`
+    \\const ok = macro `(%what:expr)` `(:ok, %what)`
+    \\const err = macro `(%what:expr)` `(:err, %what)`
+    \\const some = macro `(%what:expr)` `(:some, %what)`
+    \\const println! = macro `(%fmt:str %ARGS(, %arg:expr)*)` `(print(fmt(%fmt %ARGS(, %arg))))`
+;
+
+pub fn build(vm: *VM, source: Source, opts: BuildOptions) !BuildResult {
+    var arena = std.heap.ArenaAllocator.init(vm.runtime.alloc);
+    defer arena.deinit();
+
+    const parsed = switch (try parse(arena.allocator(), source, .{
+        .include_default_macros = opts.include_default_macros,
+    })) {
+        .ok => |ok| ok,
+        .err => |failure| return .{ .err = .{ .parse = failure } },
+    };
+    const expanded = switch (try expand(arena.allocator(), parsed)) {
+        .ok => |ok| ok,
+        .err => |err| return err,
+    };
+    return switch (try lower(vm, expanded, .{
+        .install_debug_info = opts.install_debug_info,
+        .source = source,
+    })) {
+        .ok => |artifact| .{ .ok = artifact },
+        .err => |failure| .{ .err = .{ .lower = failure } },
+    };
+}
+
+pub const Source = struct {
+    text: []const u8,
+    name: ?[]const u8 = null,
+};
+
+pub const ParseOptions = struct {
+    include_default_macros: bool = false,
+};
+
+pub const LowerOptions = struct {
+    install_debug_info: bool = false,
+    source: ?Source = null,
+};
+pub const BuildOptions = struct {
+    include_default_macros: bool = true,
+    install_debug_info: bool = true,
+};
+
+pub const Parsed = struct {
+    root: *Node,
+};
+
+pub const Expanded = struct {
+    root: *Node,
+};
+
+pub const Error = union(enum) {
+    parse: parser.ParseFailure,
+    lower: compiler.LowerFailure,
+};
+
+pub const ParseResult = Result(Parsed, parser.ParseFailure);
+pub const ExpandResult = Result(Expanded, expander.ExpandError);
+pub const LowerResult = Result(Artifact, compiler.LowerFailure);
+pub const BuildResult = Result(Artifact, Error);
+
+pub fn parse(allocator: std.mem.Allocator, source: Source, opts: ParseOptions) !ParseResult {
+    if (!opts.include_default_macros) {
+        return switch (try parseSourceReport(allocator, source.text)) {
+            .ok => |expr| .{ .ok = .{ .root = expr } },
+            .err => |failure| .{ .err = failure },
+        };
+    }
+
+    const defaults: ParseResult = switch (try parseSourceReport(allocator, default_macro_source)) {
+        .ok => |root| .{ .ok = .{ .root = root } },
+        .err => |failure| .{ .err = failure },
+    };
+    if (defaults == .err) return .{ .err = defaults.err };
+    const user: ParseResult = switch (try parseSourceReport(allocator, source.text)) {
+        .ok => |root| .{ .ok = .{ .root = root } },
+        .err => |failure| .{ .err = failure },
+    };
+    if (user == .err) return .{ .err = user.err };
+    return .{ .ok = .{ .root = try mergeWithDefaults(allocator, defaults.ok.root, user.ok.root) } };
+}
+
+pub fn expand(allocator: std.mem.Allocator, parsed: Parsed) !ExpandResult {
+    const root = expander.expandExpr(allocator, parsed.root) catch |err| return .{ .err = err };
+    return .{ .ok = .{ .root = root } };
+}
+
+pub fn lower(vm: *VM, expanded: Expanded, opts: LowerOptions) !LowerResult {
+    const lowered = try compiler.lowerExprArtifactReport(vm, expanded.root);
+    return switch (lowered) {
+        .ok => |artifact| blk: {
+            if (opts.install_debug_info) {
+                const source: Source = opts.source orelse Source{ .text = "", .name = "<source>" };
+                try vm.setProgramDebugInfo(artifact.spans, source.text, source.name orelse "<source>");
+            }
+            break :blk .{ .ok = artifact };
+        },
+        .err => |failure| .{ .err = failure },
+    };
+}
+
+pub fn renderError(writer: *std.Io.Writer, source: Source, err: Error) !void {
+    return switch (err) {
+        .parse => |failure| revo.renderFailureAt(
+            writer,
+            source.name orelse "<source>",
+            source.text,
+            failure.span,
+            failure.message,
+        ),
+        .lower => |failure| revo.renderFailureAt(
+            writer,
+            source.name orelse "<source>",
+            source.text,
+            failure.span,
+            failure.message,
+        ),
+    };
+}
+
+pub fn parseSource(allocator: std.mem.Allocator, source: []const u8) !*Node {
+    return switch (try parseSourceReport(allocator, source)) {
+        .ok => |expr| expr,
+        .err => |failure| switch (failure.kind) {
+            .LexUnexpectedCharacter => error.UnexpectedCharacter,
+            .LexUnterminatedComment => error.UnterminatedComment,
+            .LexUnterminatedString => error.UnterminatedString,
+            .UnexpectedToken => error.UnexpectedToken,
+            .ExpectedIdentifier => error.ExpectedIdentifier,
+            .ExpectedMatchArm => error.ExpectedMatchArm,
+            .LexUnknown => error.ParseFailed,
+        },
+    };
+}
+
+pub fn parseSourceReport(allocator: std.mem.Allocator, source: []const u8) !parser.ParseResult {
+    const lexed = try lexer.lexReport(allocator, source);
+    const tokens = switch (lexed) {
+        .ok => |items| items,
+        .err => |failure| {
+            const kind: parser.ParseFailure.Kind = switch (failure.kind) {
+                .UnexpectedCharacter => .LexUnexpectedCharacter,
+                .UnterminatedComment => .LexUnterminatedComment,
+                .UnterminatedString => .LexUnterminatedString,
+                .Unknown => .LexUnknown,
+            };
+            return .{ .err = .{ .kind = kind, .span = failure.span, .message = failure.message } };
+        },
+    };
+    defer allocator.free(tokens);
+    return parser.parseTokensReport(allocator, tokens);
+}
+
+pub fn mergeWithDefaults(allocator: std.mem.Allocator, defaults: *Node, user: *Node) !*Node {
+    var items = try std.ArrayList(*Node).initCapacity(allocator, 8);
+    switch (defaults.expr) {
+        .block => |block| try items.appendSlice(allocator, block),
+        else => try items.append(allocator, defaults),
+    }
+    switch (user.expr) {
+        .block => |block| try items.appendSlice(allocator, block),
+        else => try items.append(allocator, user),
+    }
+    const span = ast.Span.merge(defaults.span, user.span);
+    const node = try allocator.create(Node);
+    node.* = .{
+        .span = span,
+        .expr = .{ .block = try items.toOwnedSlice(allocator) },
+    };
+    return node;
+}
+
+const std = @import("std");
+
+const lang = @import("./root.zig");
+const ast = lang.ast;
+const Node = ast.Node;
+const compiler = lang.compiler;
+const expander = lang.expander;
+const lexer = lang.lexer;
+const parser = lang.parser;
+
+const revo = @import("revo");
+const VM = revo.VM;
+const Result = revo.Result;
+
+pub const Artifact = compiler.Artifact;
+pub const ParseFailure = parser.ParseFailure;
+pub const LowerFailure = compiler.LowerFailure;

@@ -1,0 +1,9 @@
+const inc = fn(x) do x + 1 end
+const double = fn(x) do x * 2 end
+const compute = fn(x) do double(inc(x)) end
+
+let acc = 0
+for i in 0..100000
+  acc = acc + compute(i)
+
+acc

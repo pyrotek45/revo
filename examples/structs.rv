@@ -1,0 +1,19 @@
+struct Counter {
+    count: number = 0
+    const inc   = fn(self) do self.count += 1  self.count end
+    const value = fn(self) self.count
+}
+
+let c = Counter{}
+c:inc()
+c:inc()
+print(c:value()) # 2
+
+struct Point {
+    x: number = 0
+    y: number = 0
+    const translate = fn(self, dx, dy)
+        Point{x = self.x + dx, y = self.y + dy}
+}
+
+print(Point({x = 1, y = 2}):translate(3, 4).x) # 4

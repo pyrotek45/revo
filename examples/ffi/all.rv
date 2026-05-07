@@ -1,0 +1,16 @@
+print("// examples module")
+const ex = import("examples.so")
+print("echo:", ex.echo("hello"))
+print("strlen:", ex.strlen_fn("hello"))
+print("add:", ex.add(3, 4))
+print("type(5):", ex.type(5))
+
+print("// regex module")
+const regex = import("regex")
+const r = Regex{pattern = "[a-z]+"}
+print("regex obj:", r)
+print("regex.test(\"[0-9]+\", \"a1b\"):", regex.test("[0-9]+", "a1b"))
+print("regex.test(\"[a-z]+\", \"abc\"):", regex.test("[a-z]+", "abc"))
+
+print()
+print(":ok")

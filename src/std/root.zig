@@ -1,0 +1,972 @@
+const std = @import("std");
+
+const revo = @import("../root.zig");
+const mem = revo.memory;
+
+const Data = mem.Data;
+const VM = revo.VM;
+const testing = revo.lang.testing;
+
+pub fn register_stdlib(vm: *revo.VM) !void {
+    const meta = @import("meta.zig");
+    try registerFunctions(vm, &[_]FuncDef{
+        .{ .name = "fmt", .f = defineVariadic(&[_]TypeSpec{.string}, fmt) },
+        .{ .name = "len", .f = define(&[_]TypeSpec{.any}, len_) },
+        .{ .name = "inspect", .f = define(&[_]TypeSpec{.any}, inspect) },
+        .{ .name = "get_metatable", .f = define(&[_]TypeSpec{.any}, meta.get_metatable_) },
+        .{ .name = "set_metatable", .f = define(&[_]TypeSpec{ .any, .any }, meta.set_metatable_) },
+        .{ .name = "type", .f = define(&[_]TypeSpec{.any}, typeof_) },
+        .{ .name = "typeof", .f = define(&[_]TypeSpec{.any}, typeof_) },
+        .{ .name = "tostring", .f = define(&[_]TypeSpec{.any}, tostring) },
+        .{ .name = "tonumber", .f = define(&[_]TypeSpec{.any}, tonumber) },
+        .{ .name = "assert", .f = define(&[_]TypeSpec{.any}, assert_) },
+        .{ .name = "set_debug", .f = define(&[_]TypeSpec{.table}, meta.set_debug) },
+        .{ .name = "@range", .f = define(&[_]TypeSpec{ .number, .number, .number }, range_) },
+        .{ .name = "@range_from", .f = define(&[_]TypeSpec{ .number, .number }, range_from_) },
+        .{ .name = "@struct_new", .f = define(&[_]TypeSpec{ .table, .table }, struct_new) },
+        .{ .name = "@try", .f = define(&[_]TypeSpec{.tuple}, try_) },
+        .{ .name = "@eval", .f = define(&[_]TypeSpec{.string}, @import("stupid.zig").eval) },
+        .{ .name = "chan", .f = defineVariadic(&[_]TypeSpec{}, chan_new) },
+        .{ .name = "send", .f = define(&[_]TypeSpec{ .tuple, .any }, chan_send) },
+        .{ .name = "recv", .f = define(&[_]TypeSpec{.tuple}, chan_recv) },
+        .{ .name = "sleep", .f = define(&[_]TypeSpec{.number}, sleep) },
+        .{ .name = "print", .f = defineVariadic(&[_]TypeSpec{}, print) },
+        .{ .name = "panic", .f = defineVariadic(&[_]TypeSpec{}, panic_) },
+        .{ .name = "c_use", .f = define(&[_]TypeSpec{.string}, cload) },
+    });
+    // math
+    try @import("math.zig").register(vm);
+    try @import("string.zig").register(vm);
+    try @import("table.zig").register(vm);
+    try @import("net.zig").register(vm);
+    try @import("meta.zig").comparison_mt.register(vm);
+    try @import("tuple.zig").register(vm);
+    try @import("iter.zig").register(vm);
+    try @import("fs.zig").register(vm);
+    try @import("io.zig").register(vm);
+    try typeUtils(vm);
+    try registerIoGlobals(vm);
+}
+
+pub const NativeFn = *const fn (args: []const Data, vm: *VM) anyerror!NativeResult;
+pub const NativeFunc = struct {
+    arity: usize,
+    variadic: bool = false,
+    param_types: []const TypeSpec,
+    ret_type: TypeSpec = .any,
+    func: NativeFn,
+};
+
+pub fn define(
+    comptime types: []const TypeSpec,
+    impl: NativeFn,
+) NativeFunc {
+    return .{
+        .arity = types.len,
+        .param_types = types,
+        .func = impl,
+    };
+}
+
+pub fn defineVariadic(
+    comptime types: []const TypeSpec,
+    impl: NativeFn,
+) NativeFunc {
+    return .{
+        .arity = types.len,
+        .variadic = true,
+        .param_types = types,
+        .func = impl,
+    };
+}
+
+pub fn defineRet(
+    comptime types: []const TypeSpec,
+    comptime ret_type: TypeSpec,
+    impl: NativeFn,
+) NativeFunc {
+    return .{
+        .arity = types.len,
+        .param_types = types,
+        .ret_type = ret_type,
+        .func = impl,
+    };
+}
+
+pub fn defineVariadicRet(
+    comptime types: []const TypeSpec,
+    comptime ret_type: TypeSpec,
+    impl: NativeFn,
+) NativeFunc {
+    return .{
+        .arity = types.len,
+        .variadic = true,
+        .param_types = types,
+        .ret_type = ret_type,
+        .func = impl,
+    };
+}
+
+pub const FuncDef = struct { f: NativeFunc, name: []const u8 };
+
+pub const ResultTag = enum { ok, err };
+
+pub const TypeSpec = union(enum) {
+    integer,
+    float,
+    number,
+    string,
+    atom,
+    function,
+    table,
+    tuple,
+    bool,
+    any,
+
+    pub fn matches(self: TypeSpec, data: Data) bool {
+        return switch (self) {
+            .any => true,
+            .number, .integer, .float => data == .number,
+            .bool => data == .atom and isBoolAtom(data.atom),
+            .string => data == .string,
+            .atom => data == .atom,
+            .function => data == .function,
+            .table => data == .table,
+            .tuple => data == .tuple,
+        };
+    }
+};
+
+fn isBoolAtom(atom: mem.AtomID) bool {
+    const true_id = revo.core_atoms.atom_id(.true);
+    const false_id = revo.core_atoms.atom_id(.false);
+    return atom == true_id or atom == false_id;
+}
+
+pub fn dataToString(data: Data) []const u8 {
+    return @tagName(data);
+}
+
+pub fn expectArgs(args: []const Data, need: []const TypeSpec) bool {
+    if (args.len != need.len) return false;
+    for (need, 0..) |want, i| {
+        if (!want.matches(args[i])) return false;
+    }
+    return true;
+}
+
+pub fn expectArity(args: []const Data, expected: usize) bool {
+    return args.len == expected;
+}
+
+pub fn expectAtLeastArity(args: []const Data, min: usize) bool {
+    return args.len >= min;
+}
+
+pub fn resultTuple(vm: *VM, comptime tag: ResultTag, value: Data) !NativeResult {
+    const tag_atom = try resultTag(vm, tag);
+    const items = [_]Data{
+        .{ .atom = tag_atom },
+        value,
+    };
+    return .okData(Data.new.tuple(try vm.tuples.create(&items)));
+}
+
+pub fn maybeTuple(vm: *VM, value: ?Data) !NativeResult {
+    if (value) |v| {
+        return .okData(Data.new.tuple(try vm.tuples.create(&[_]Data{
+            revo.core_atoms.data(.some),
+            v,
+        })));
+    } else return .okData(revo.core_atoms.data(.none));
+}
+
+pub fn okAtom(vm: *VM) NativeResult {
+    _ = vm;
+    return .{ .ok = revo.core_atoms.data(.ok) };
+}
+
+pub fn noneAtom(vm: *VM) NativeResult {
+    _ = vm;
+    return .{ .ok = revo.core_atoms.data(.none) };
+}
+
+pub fn resultTag(vm: *VM, comptime tag: ResultTag) !mem.AtomID {
+    _ = vm;
+    return switch (tag) {
+        .ok => revo.core_atoms.atom_id(.ok),
+        .err => revo.core_atoms.atom_id(.err),
+    };
+}
+
+pub fn boolData(value: bool) Data {
+    return Data.new.num(@as(u8, if (value) 1 else 0));
+}
+
+pub fn tupleTag(value: Data, vm: *VM) ?mem.AtomID {
+    const id = switch (value) {
+        .tuple => |tuple_id| tuple_id,
+        else => return null,
+    };
+    const tuple = vm.tuples.get(id) catch return null;
+    if (tuple.items.len == 0) return null;
+    return switch (tuple.items[0]) {
+        .atom => |tag| tag,
+        else => null,
+    };
+}
+
+pub fn isResultTag(value: Data, expected: mem.AtomID, vm: *VM) bool {
+    return tupleTag(value, vm) == expected;
+}
+
+pub fn asErrorTuple(value: Data, vm: *VM) ?revo.tuple.Tuple {
+    const id = switch (value) {
+        .tuple => |tuple_id| tuple_id,
+        else => return null,
+    };
+    const tuple = vm.tuples.get(id) catch return null;
+    if (tuple.items.len == 0) return null;
+    const tag = switch (tuple.items[0]) {
+        .atom => |atom| atom,
+        else => return null,
+    };
+    const ok_tag = revo.core_atoms.atom_id(.ok);
+    const err_tag = revo.core_atoms.atom_id(.err);
+    if (tag == ok_tag or tag == err_tag) return null;
+    return tuple.*;
+}
+
+pub fn registerFunctions(vm: *VM, funcs: []const FuncDef) !void {
+    for (funcs) |f| {
+        const id = try vm.functions.create(.{ .native = f.f });
+        const atom = try vm.internAtom(f.name);
+        try vm.globals.put(atom, .{ .function = id });
+    }
+}
+
+pub fn registerTableFunctions(vm: *VM, table_name: []const u8, funcs: []const FuncDef) !void {
+    const t_id = try vm.tables.create();
+    const atom = try vm.internAtom(table_name);
+    try vm.globals.put(atom, Data{ .table = t_id });
+    const t = try vm.tables.get(t_id);
+    for (funcs) |f| {
+        const fn_id = try vm.functions.create(.{ .native = f.f });
+        try t.putRaw(.{ .atom = try vm.internAtom(f.name) }, Data{ .function = fn_id });
+    }
+}
+
+fn registerIoGlobals(vm: *VM) !void {
+    const import_id = try vm.functions.create(.{ .native = define(&.{.string}, vm.io_ops.import) });
+    try vm.globals.put(try vm.internAtom("import"), .{ .function = import_id });
+
+    const os_id = try vm.tables.create();
+    const os_table = try vm.tables.get(os_id);
+
+    const read_id = try vm.functions.create(.{ .native = defineVariadic(&.{}, vm.io_ops.read) });
+    try os_table.putRaw(.{ .atom = try vm.internAtom("read") }, .{ .function = read_id });
+
+    const cwd_id = try vm.functions.create(.{ .native = define(&.{}, vm.io_ops.cwd) });
+    try os_table.putRaw(.{ .atom = try vm.internAtom("cwd") }, .{ .function = cwd_id });
+
+    try vm.globals.put(try vm.internAtom("os"), .{ .table = os_id });
+}
+
+/// > fmt(format: string, args: any...) -> string
+/// format string with %v, %d, %? specifiers
+/// %v: display value, %d: as number, %?: debug repr
+///     fmt("hello %v", "world")
+///     fmt("val: %v, num: %d", "x", 42)
+pub fn fmt(args: []const Data, vm: *VM) !NativeResult {
+    if (args.len == 0) return .errArity(0, 1);
+    const format = switch (args[0]) {
+        .string => |id| vm.stringValue(id),
+        else => unreachable,
+    };
+
+    var result = try std.ArrayList(u8).initCapacity(vm.runtime.alloc, 4);
+    defer result.deinit(vm.runtime.alloc);
+
+    var arg_idx: usize = 1;
+    var i: usize = 0;
+
+    while (i < format.len) {
+        if (i + 1 < format.len and format[i] == '%') {
+            switch (format[i + 1]) {
+                'v' => {
+                    if (arg_idx >= args.len) return .errArity(args.len, arg_idx + 1);
+                    try append_data(&result, args[arg_idx], vm, .display);
+                    arg_idx += 1;
+                    i += 2;
+                },
+                'd' => {
+                    if (arg_idx >= args.len) return .errArity(args.len, arg_idx + 1);
+                    const v = switch (args[arg_idx]) {
+                        .number => args[arg_idx],
+                        .string => |id| Data.new.num(try std.fmt.parseFloat(f64, vm.stringValue(id))),
+                        .atom => try vm.ownDataString("<un-tonumber-able>"),
+                        else => Data.new.num(0),
+                    };
+                    try append_data(&result, v, vm, .display);
+                    arg_idx += 1;
+                    i += 2;
+                },
+                '?' => {
+                    if (arg_idx >= args.len) return .errArity(args.len, arg_idx + 1);
+                    try append_data(&result, args[arg_idx], vm, .debug);
+                    arg_idx += 1;
+                    i += 2;
+                },
+                else => {},
+            }
+        } else {
+            try result.append(vm.runtime.alloc, format[i]);
+            i += 1;
+        }
+    }
+
+    const str = try result.toOwnedSlice(vm.runtime.alloc);
+    return .{ .ok = try vm.adoptDataString(str) };
+}
+
+test "fmt %d formats numbers" {
+    try testing.top_string(
+        \\ fmt("%d", 42)
+    , "42");
+    try testing.top_string(
+        \\ fmt("%d", 1.5)
+    , "1.5");
+    try testing.top_string(
+        \\ fmt("%d", "10.5")
+    , "10.5");
+    try testing.top_string(
+        \\ fmt("%d", :hello)
+    , "<un-tonumber-able>");
+}
+
+test "fmt %? uses debug rendering" {
+    try testing.top_string(
+        \\ const mt = {__debug = fn(self) "custom-debug"}
+        \\ const t = set_metatable({}, mt)
+        \\ fmt("%?", t)
+    , "custom-debug");
+}
+
+/// > len(arg0: any) -> number|nil
+/// returns length of string or table
+/// for strings: byte length, for tables: array part length
+/// uses __len metamethod if available
+pub fn len_(args: []const Data, vm: *VM) !NativeResult {
+    const mm = try vm.getMetamethod(args[0], "__len");
+    if (mm) |m| return call_unary_metamethod(m, args[0], vm);
+
+    return switch (args[0]) {
+        .string => |id| .okData(Data.new.num(vm.stringValue(id).len)),
+        .table => |id| .okData(Data.new.num((try vm.tables.get(id)).array.items.len)),
+        else => .errType(0, "string or table", typeof(args[0])),
+    };
+}
+
+/// > inspect(any) -> any
+/// prints one value and returns it back
+pub fn inspect(args: []const Data, vm: *VM) !NativeResult {
+    _ = try print(args, vm);
+    return .okData(args[0]);
+}
+
+pub fn typeof(d: Data) []const u8 {
+    return switch (d) {
+        .atom => |a| if (a == revo.core_atoms.atom_id(.nil)) "nil" else "atom",
+        .number => "number",
+        .string => "string",
+        .function => "function",
+        .table => "table",
+        .tuple => "tuple",
+    };
+}
+
+/// > typeof(arg0: any) -> string
+/// returns type of arg0 as string
+/// possible values: nil, number, string, atom, function, table, tuple
+pub fn typeof_(args: []const Data, vm: *VM) !NativeResult {
+    const str = switch (args[0]) {
+        .atom => |a| if (a == revo.core_atoms.atom_id(.nil)) "nil" else "atom",
+        .number => "number",
+        .string => "string",
+        .function => "function",
+        .table => "table",
+        .tuple => "tuple",
+    };
+
+    return .okData(Data.new.atom(try vm.internAtom(str)));
+}
+
+fn typeMatchesStructField(expected: Data, value: Data, vm: *VM) bool {
+    const expected_atom = switch (expected) {
+        .atom => |atom| atom,
+        else => return true,
+    };
+    const expected_name = vm.atomName(expected_atom);
+
+    if (std.mem.eql(u8, expected_name, "bool")) {
+        return value == .atom and isBoolAtom(value.atom);
+    }
+    if (std.mem.eql(u8, expected_name, "integer")) return value == .number;
+    if (std.mem.eql(u8, expected_name, "float")) return value == .number;
+    return std.mem.eql(u8, expected_name, typeof(value));
+}
+
+fn panicFmt(vm: *VM, comptime fmt_str: []const u8, args: anytype) !NativeResult {
+    const message = try std.fmt.allocPrint(vm.runtime.alloc, fmt_str, args);
+    defer vm.runtime.alloc.free(message);
+    try vm.setPanicMessage(message);
+    return .panic();
+}
+
+fn struct_new(args: []const Data, vm: *VM) !NativeResult {
+    const descriptor_id = args[0].table;
+    const init_id = args[1].table;
+
+    const descriptor = try vm.tables.get(descriptor_id);
+
+    const fields_id = switch (descriptor.getRaw(.{ .atom = try vm.internAtom("__fields") }) orelse return .other("invalid struct descriptor")) {
+        .table => |id| id,
+        else => return .other("invalid struct descriptor, fields has to be a table!"),
+    };
+
+    const defaults_id = switch (descriptor.getRaw(.{ .atom = try vm.internAtom("__defaults") }) orelse
+        return .other("invalid struct descriptor, no defaults!")) {
+        .table => |id| id,
+        else => return .other("invalid struct descriptor"),
+    };
+
+    const types_id = switch (descriptor.getRaw(.{ .atom = try vm.internAtom("__types") }) orelse
+        return .other("invalid struct descriptor, no types!")) {
+        .table => |id| id,
+        else => return .other("invalid struct descriptor"),
+    };
+
+    const name = switch (descriptor.getRaw(.{ .atom = try vm.internAtom("__name") }) orelse
+        return .other("invalid struct descriptor")) {
+        .string => |id| vm.stringValue(id),
+        else => "<struct>",
+    };
+
+    // allocate first, then refetch pointers,,,, pool growth can invalidate table refs
+    const instance_id = try vm.tables.create();
+    const instance = try vm.tables.get(instance_id);
+    const init = try vm.tables.get(init_id);
+    const fields = try vm.tables.get(fields_id);
+    const defaults = try vm.tables.get(defaults_id);
+    const types = try vm.tables.get(types_id);
+
+    for (fields.hash_order.items) |field_data| {
+        const field_key = field_data;
+        const field_atom = field_key.atom;
+        const field_name = vm.atomName(field_atom);
+        _ = fields.getRaw(field_key) orelse return .other("invalid struct descriptor");
+
+        const value = init.getRaw(field_key) orelse defaults.getRaw(field_key) orelse {
+            return panicFmt(vm, "missing field `{s}` for struct `{s}`", .{ field_name, name });
+        };
+
+        if (types.getRaw(field_key)) |expected| {
+            if (!typeMatchesStructField(expected, value, vm)) {
+                return panicFmt(vm, "field `{s}` on `{s}` expected {s}, got {s}", .{
+                    field_name,
+                    name,
+                    switch (expected) {
+                        .atom => |atom| vm.atomName(atom),
+                        else => dataToString(expected),
+                    },
+                    typeof(value),
+                });
+            }
+        }
+
+        try instance.putRaw(field_key, value);
+    }
+
+    for (init.hash_order.items) |field_data| {
+        if (fields.getRaw(field_data) == null) {
+            return panicFmt(vm, "unknown field `{s}` for struct `{s}`", .{
+                vm.atomName(field_data.atom),
+                name,
+            });
+        }
+    }
+
+    try vm.setStructInstanceTable(instance_id, descriptor_id);
+    return .{ .ok = .{ .table = instance_id } };
+}
+
+/// > tostring(arg0: any) -> string
+/// converts value to string representation
+/// uses __tostring or __display metamethod if available
+pub fn tostring(args: []const Data, vm: *VM) !NativeResult {
+    const mm = try vm.getMetamethod(args[0], "__tostring");
+    if (mm) |m| return call_unary_metamethod(m, args[0], vm);
+    var buf = try std.ArrayList(u8).initCapacity(vm.runtime.alloc, 8);
+    defer buf.deinit(vm.runtime.alloc);
+    try args[0].write(&buf, vm, .display);
+    const str = try buf.toOwnedSlice(vm.runtime.alloc);
+    return .{ .ok = try vm.adoptDataString(str) };
+}
+
+/// > @range_from(start: number, step: number) -> tuple
+/// creates a range tuple (start, step) without stop
+fn range_from_(args: []const Data, vm: *VM) !NativeResult {
+    const start = expect_number(args[0]) orelse return .errType(0, "number", @tagName(args[0]));
+    const step = expect_number(args[1]) orelse return .errType(1, "number", @tagName(args[1]));
+    const tag = try vm.internAtom("range_from");
+    const id = try vm.tuples.create(&.{ .{ .atom = tag }, Data.new.num(start), Data.new.num(step) });
+    return .okData(Data.new.tuple(id));
+}
+
+/// > @try(result: tuple) -> any
+/// unwraps result tuple, panics if not :ok
+pub fn try_(args: []const Data, vm: *VM) !NativeResult {
+    const t_id = switch (args[0]) {
+        .tuple => |t| t,
+        else => return .errType(0, "tuple", @tagName(args[0])),
+    };
+    const tuple = try vm.tuples.get(t_id);
+    if (tuple.len() < 2) return .errType(0, "tuple with at least 2 elements", "tuple with less than 2 elements");
+    const tag = tuple.items[0];
+    switch (tag) {
+        .atom => |atom| {
+            const ok_id = revo.core_atoms.atom_id(.ok);
+            if (atom != ok_id) return panic_(&[1]Data{tuple.items[1]}, vm);
+            return .{ .ok = tuple.items[1] };
+        },
+        else => return .errType(0, "tuple starting with atom", "tuple starting with non-atom"),
+    }
+}
+
+/// > tuple:unwrap_err() -> any
+/// extracts error from result tuple, panics if not :err
+pub fn unwrap_err_(args: []const Data, vm: *VM) !NativeResult {
+    const result = args[0];
+    if (result != .tuple) return .errType(0, "tuple", @tagName(result));
+
+    const tuple = try vm.tuples.get(result.tuple);
+    if (tuple.items.len < 2) return .errType(0, "tuple with at least 2 elements", "empty tuple");
+
+    const tag = tuple.items[0];
+    if (tag != .atom) return .errType(0, "tuple starting with atom", "tuple starting with non-atom");
+
+    const err_tag = revo.core_atoms.atom_id(.err);
+    if (tag.atom == err_tag) {
+        return .{ .ok = tuple.items[1] };
+    }
+
+    return panic_(&[1]Data{revo.core_atoms.data(.err)}, vm);
+}
+
+/// > @range(start: number, step: number, stop: number) -> tuple
+/// creates a range tuple (start, step, stop)
+pub fn range_(args: []const Data, vm: *VM) !NativeResult {
+    const start = expect_number(args[0]) orelse return .errType(0, "number", @tagName(args[0]));
+    const step = expect_number(args[1]) orelse return .errType(1, "number", @tagName(args[1]));
+    const stop = expect_number(args[2]) orelse return .errType(2, "number", @tagName(args[2]));
+    const tag = revo.core_atoms.atom_id(.range);
+    const id = try vm.tuples.create(&.{ .{ .atom = tag }, Data.new.num(start), Data.new.num(step), Data.new.num(stop) });
+    return .okData(Data.new.tuple(id));
+}
+
+fn expect_number(data: Data) ?f64 {
+    return switch (data) {
+        .number => |n| n,
+        else => null,
+    };
+}
+
+fn as_stack_index(value: Data) ?usize {
+    const num = switch (value) {
+        .number => |n| n,
+        else => return null,
+    };
+    return revo.asIndex(num) catch null;
+}
+
+/// > chan(capacity?: number) -> tuple
+/// creates a new channel with optional buffer size
+///     chan()        # unbuffered
+///     chan(5)       # buffer of 5
+pub fn chan_new(args: []const Data, vm: *VM) !NativeResult {
+    const cap: usize = if (args.len == 0)
+        0
+    else if (args.len == 1)
+        as_stack_index(args[0]) orelse return .errType(0, "number", @tagName(args[0]))
+    else
+        return .errArity(args.len, 0);
+
+    const channel_id = try vm.sched.channelCreate(vm.runtime.alloc, &vm.tables, cap);
+    const res = try vm.tuples.create(&[2]Data{
+        .{ .atom = try vm.internAtom("chan") },
+        Data.new.num(channel_id),
+    });
+    return .okData(Data.new.tuple(res));
+}
+
+/// > send(chan: tuple, value: any) -> atom
+/// sends value to channel
+pub fn chan_send(args: []const Data, vm: *VM) !NativeResult {
+    const tuple_id = switch (args[0]) {
+        .tuple => |id| id,
+        else => return .errType(0, "tuple", @tagName(args[0])),
+    };
+    const t = try vm.tuples.get(tuple_id);
+    if (t.items.len < 2) return .errType(0, "chan tuple", "tuple");
+    const chan_atom = try vm.internAtom("chan");
+    if (t.items[0] != .atom or t.items[0].atom != chan_atom)
+        return .errType(0, "chan tuple", "tuple");
+    const chan_id = t.items[1].number;
+    const cid: revo.vm.ChannelID = @intFromFloat(chan_id);
+    try vm.sched.channelSend(vm.runtime.alloc, cid, args[1]);
+    return okAtom(vm);
+}
+
+/// > recv(chan: tuple) -> any
+/// receives value from channel, parks if empty
+pub fn chan_recv(args: []const Data, vm: *VM) !NativeResult {
+    const tuple_id = switch (args[0]) {
+        .tuple => |id| id,
+        else => return .errType(0, "tuple", @tagName(args[0])),
+    };
+    const t = try vm.tuples.get(tuple_id);
+    if (t.items.len < 2) return .errType(0, "chan tuple", "tuple");
+    const chan_atom = try vm.internAtom("chan");
+    if (t.items[0] != .atom or t.items[0].atom != chan_atom)
+        return .errType(0, "chan tuple", "tuple");
+    const chan_id = t.items[1].number;
+    const cid: revo.vm.ChannelID = @intFromFloat(chan_id);
+    const recv_result = try vm.sched.channelRecv(vm.runtime.alloc, cid);
+    if (recv_result) |value| return .{ .ok = value };
+    return .parked();
+}
+
+/// converts value to number
+/// accepts number (passthrough) or string (parsed)
+/// errors on other types
+pub fn tonumber(args: []const Data, vm: *VM) !NativeResult {
+    return switch (args[0]) {
+        .number => .{ .ok = args[0] },
+        .string => |id| .{ .ok = Data.new.num(try std.fmt.parseFloat(f64, vm.stringValue(id))) },
+        else => .errType(0, "number, string", @tagName(args[0])),
+    };
+}
+
+/// asserts value is truthy
+/// errors with "assertion failed" if value is false or nil
+pub fn assert_(args: []const Data, vm: *VM) !NativeResult {
+    if (revo.isFalse(args[0])) return .other("assertion failed");
+    return okAtom(vm);
+}
+
+/// > print(args: any...) -> atom
+/// prints values to stdout with space separator
+///     print("hello", 42, "world")
+pub fn print(args: []const Data, vm: *VM) !NativeResult {
+    if (args.len == 0) {
+        std.debug.print("\n", .{});
+        return okAtom(vm);
+    }
+    for (args, 0..) |a, idx| {
+        var buf = try std.ArrayList(u8).initCapacity(vm.runtime.alloc, 4);
+        defer buf.deinit(vm.runtime.alloc);
+        try append_data(&buf, a, vm, .display);
+        std.debug.print("{s}", .{buf.items});
+        if (idx < args.len - 1) std.debug.print(" ", .{});
+    }
+    std.debug.print("\n", .{});
+    return .{ .ok = revo.core_atoms.data(.ok) };
+}
+
+/// > panic(args: any...) -> error
+/// panics with given message
+///     panic("something went wrong")
+pub fn panic_(args: []const Data, vm: *VM) !NativeResult {
+    var buf = try std.ArrayList(u8).initCapacity(vm.runtime.alloc, 16);
+    defer buf.deinit(vm.runtime.alloc);
+    if (args.len == 0) {
+        try buf.appendSlice(vm.runtime.alloc, "panic");
+    } else {
+        for (args, 0..) |arg, idx| {
+            if (idx != 0) try buf.appendSlice(vm.runtime.alloc, " ");
+            try append_data(&buf, arg, vm, .display);
+        }
+    }
+    try vm.setPanicMessage(buf.items);
+    return .other("panic");
+}
+
+/// > cload(path: string) -> nil
+///
+/// you should use import() instead. likely going to remove this
+/// loads a C extension lib and registers its functions as globals
+pub fn cload(args: []const Data, vm: *VM) !NativeResult {
+    const string_id = args[0].string;
+    const path = vm.stringValue(string_id);
+
+    const resolved_path = try revo.path_utils.resolve(path, vm.module_dir, vm.runtime.io, vm.runtime.alloc);
+    defer vm.runtime.alloc.free(resolved_path);
+
+    const mods = try revo.ffi.loadC(vm, resolved_path);
+    defer vm.runtime.alloc.free(mods);
+    const t_id = try vm.tables.create();
+
+    for (mods) |c_fn| {
+        const fn_id = try vm.functions.create(.{ .c_function = c_fn });
+        try vm.setGlobal(c_fn.name, .{ .function = fn_id });
+    }
+
+    return .okData(mem.Data{ .table = t_id });
+}
+
+const RenderMode = enum { display, debug };
+
+fn append_data(buf: *std.ArrayList(u8), val: Data, vm: *VM, mode: RenderMode) !void {
+    switch (mode) {
+        .display => {
+            const mm = try vm.getMetamethod(val, "__display");
+            if (mm) |m| {
+                const rendered = call_unary_metamethod(m, val, vm);
+                const str = switch (rendered) {
+                    .ok => |r| switch (r) {
+                        .string => |id| vm.stringValue(id),
+                        else => "",
+                    },
+                    .err => "",
+                };
+                try buf.appendSlice(vm.runtime.alloc, str);
+                return;
+            }
+            const mm2 = try vm.getMetamethod(val, "__tostring");
+            if (mm2) |m| {
+                const rendered = call_unary_metamethod(m, val, vm);
+                const str = switch (rendered) {
+                    .ok => |r| switch (r) {
+                        .string => |id| vm.stringValue(id),
+                        else => "",
+                    },
+                    .err => "",
+                };
+                try buf.appendSlice(vm.runtime.alloc, str);
+                return;
+            }
+            try val.write(buf, vm, .display);
+        },
+        .debug => try val.write(buf, vm, .debug),
+    }
+}
+
+pub fn call_unary_metamethod(mm: Data, val: Data, vm: *VM) NativeResult {
+    return switch (mm) {
+        .function => {
+            const result = vm.callFunction(mm, &.{val}) catch |err| {
+                // never crash host process on user-level metamethod failures
+                return .other(@errorName(err));
+            };
+            return .{ .ok = result };
+        },
+        else => .errType(0, "function", @tagName(mm)),
+    };
+}
+
+/// > sleep(ms: number) -> parked
+/// sleeps current fiber for given milliseconds
+/// parks fiber instead of blocking
+pub fn sleep(args: []const Data, vm: *VM) !NativeResult {
+    const ms: u64 = switch (args[0]) {
+        .number => |n| blk: {
+            if (!std.math.isFinite(n) or n < 0 or @floor(n) != n) return .errType(0, "non-negative integer", @tagName(args[0]));
+            break :blk @as(u64, @intFromFloat(n));
+        },
+        else => return .errType(0, "number", @tagName(args[0])),
+    };
+    try vm.schedParkCurrentForSleepMS(ms);
+    return .parked();
+}
+
+// metatable registration
+pub const MethodKey = union(enum) {
+    named: []const u8,
+    core: revo.core_atoms,
+};
+
+pub const MethodDef = struct {
+    key: MethodKey,
+    func: NativeFunc,
+};
+
+pub fn registerMetatable(
+    vm: *VM,
+    comptime methods: []const MethodDef,
+    prototype: Data,
+) !void {
+    const mt_id = try vm.tables.create();
+    const mt = try vm.tables.get(mt_id);
+    inline for (methods) |method| {
+        const fn_id = try vm.functions.create(.{ .native = method.func });
+        const key_atom = switch (method.key) {
+            .named => |name| try vm.internAtom(name),
+            .core => |atom| revo.core_atoms.atom_id(atom),
+        };
+        try mt.putRaw(.{ .atom = key_atom }, .{ .function = fn_id });
+    }
+    try vm.setMetatable(prototype, mt_id);
+}
+
+pub const NativeError = error{
+    StackUnderflow,
+    KeyDNE,
+    StackOverflow,
+    InvalidConstant,
+    InvalidLocal,
+    ConstantReassignment,
+    WrongArity,
+    TypeError,
+    IncompatibleTypes,
+    DivisionByZero,
+    UndefinedVariable,
+    NotAFunction,
+    FrameUnderflow,
+    PickedFromVoid,
+    FunctionDNE,
+    InvalidTable,
+    InvalidTuple,
+    ProgramEnd,
+    Panic,
+    AssertionFailed,
+    OutOfMemory,
+    mystery,
+    ModuleNotFound,
+    IoError,
+    CyclicImport,
+    ImportFailed,
+    InvalidChannel,
+    Parked,
+    InvalidBytecode,
+};
+
+pub const NativeErrPayload = union(enum) {
+    wrong_arity: struct { got: usize, expected: usize },
+    type_error: struct { arg: ?usize, expected: []const u8, got: []const u8 },
+    native_error: NativeError,
+    parked: void,
+    other: []const u8,
+};
+
+pub const NativeResult = union(enum) {
+    ok: Data,
+    err: NativeErrPayload,
+
+    pub fn parked() NativeResult {
+        return .{ .err = .{ .parked = {} } };
+    }
+    pub fn okBool(b: bool) NativeResult {
+        return .{ .ok = Data.new.boolean(b) };
+    }
+    pub fn errArity(got: usize, expected: usize) NativeResult {
+        return .{ .err = .{ .wrong_arity = .{ .got = got, .expected = expected } } };
+    }
+    pub fn errType(arg: usize, expected: []const u8, got: []const u8) NativeResult {
+        return .{ .err = .{ .type_error = .{ .arg = arg, .expected = expected, .got = got } } };
+    }
+    pub fn okData(d: Data) NativeResult {
+        return .{ .ok = d };
+    }
+    pub fn other(message: []const u8) NativeResult {
+        return .{ .err = .{ .other = message } };
+    }
+    pub fn panic() NativeResult {
+        return .{ .err = .{ .other = "panic" } };
+    }
+
+    pub fn Ok(vm: *VM, value: Data) !NativeResult {
+        return resultTuple(vm, .ok, value);
+    }
+
+    pub fn Err(vm: *VM, err_atom: []const u8) !NativeResult {
+        const tag = try vm.internAtom(err_atom);
+        return resultTuple(vm, .err, Data.new.atom(tag));
+    }
+};
+
+// type utils
+pub fn typeUtils(vm: *VM) !void {
+    inline for (@typeInfo(Data).@"union".fields) |field| {
+        const func = struct {
+            fn is_of(args: []const Data, _: *VM) !NativeResult {
+                return switch (args[0]) {
+                    @field(revo.memory.Type, field.name) => .okBool(true),
+                    else => .okBool(false),
+                };
+            }
+        }.is_of;
+        const id = try vm.functions.create(.{ .native = define(
+            &[1]TypeSpec{@field(TypeSpec, field.name)},
+            func,
+        ) });
+        const atom = try vm.internAtom(field.name ++ "?");
+        try vm.globals.put(atom, .{ .function = id });
+    }
+    const is_number = struct {
+        fn num(args: []const Data, _: *VM) !NativeResult {
+            return .okBool(switch (args[0]) {
+                .number => true,
+                else => false,
+            });
+        }
+    }.num;
+    const id = try vm.functions.create(.{ .native = define(&[_]TypeSpec{.number}, is_number) });
+    const atom = try vm.internAtom("number?");
+    try vm.globals.put(atom, .{ .function = id });
+}
+
+test "type predicates" {
+    try testing.top_true("number?(42)");
+    try testing.top_true("string?(\"hello\")");
+    try testing.top_true("table?({})");
+    try testing.top_true("atom?(:ok)");
+    try testing.top_true("function?(fn() 42)");
+}
+
+test "array methods" {
+    try testing.top_number("{1, 2, 3}:first()", 1);
+    try testing.top_number("{1, 2, 3}:last()", 3);
+    try testing.top_true("{1, 2, 3}:contains(2)");
+    try testing.top_false("{1, 2, 3}:contains(5)");
+    try testing.top_number("{1, 2, 3}:index_of(2)", 1);
+    try testing.top_number("{1, 2, 3}:sum()", 6);
+}
+
+test "array sort" {
+    try testing.top_number("{3, 1, 2}:sort():first()", 1);
+    try testing.top_number("{3, 1, 2}:sort():last()", 3);
+    try testing.top_number("{1, 5, 3}:sort_by(fn(a, b) a > b):first()", 5);
+}
+
+test "array transform" {
+    try testing.top_number("{1, 2, 3}:reverse():first()", 3);
+    try testing.top_number("{1, 2, 3}:unique():sum()", 6);
+    try testing.top_number("{1, 2, 1, 3, 2}:unique():sum()", 6);
+}
+
+test "string creation" {
+    try testing.top_string("string_of(97)", "a");
+    try testing.top_string("string_of((72, 105))", "Hi");
+    try testing.top_string("string_of((82, 101, 118, 111))", "Revo");
+}
+
+test "string table conversion" {
+    try testing.top_number("len(\"abc\":table())", 3);
+    try testing.top_number("\"a\":ascii()", 97);
+    try testing.top_number("\"Hello\":ascii()", 72);
+}
+
+test "array flatten" {
+    try testing.top_number("{{1, 2}, {3, 4}}:flatten():sum()", 10);
+    try testing.top_number("{{1}, {2, 3}, {4}}:flatten():sum()", 10);
+}
