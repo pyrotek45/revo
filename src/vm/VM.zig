@@ -713,10 +713,17 @@ pub fn runReport(self: *VM) !EvalResult {
         }
         try self.sched.wakeDueSleepers(self.runtime.alloc, self.schedNowMonotonicNs());
 
-        if (self.sched.sleepers.items.len == 0) break;
+        const has_sleepers = self.sched.sleepers.items.len > 0;
+        const has_waiting = for (self.sched.fibers.items) |fiber| {
+            if (fiber.state == .waiting) break true;
+        } else false;
 
-        self.schedSleepUntilNextTimer();
-        try self.sched.wakeDueSleepers(self.runtime.alloc, self.schedNowMonotonicNs());
+        if (!has_sleepers and !has_waiting) break;
+
+        if (has_sleepers) {
+            self.schedSleepUntilNextTimer();
+            try self.sched.wakeDueSleepers(self.runtime.alloc, self.schedNowMonotonicNs());
+        }
     }
     return .ok;
 }

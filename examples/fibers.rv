@@ -15,3 +15,7 @@ spawn producer()
 
 for _ in 0..4
     print(recv(ch))
+
+print("got 4 signals! now, waiting for more indefinitely")
+
+loop recv(ch)
