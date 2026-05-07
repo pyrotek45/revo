@@ -1,6 +1,5 @@
 pub const bytecode = @import("bytecode.zig");
 pub const debug = @import("debug.zig");
-pub const errors = @import("errors.zig");
 pub const ffi = @import("ffi.zig");
 pub const functions = @import("functions.zig");
 pub const interner = @import("interner.zig");

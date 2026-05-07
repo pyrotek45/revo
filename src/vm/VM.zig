@@ -1771,7 +1771,6 @@ pub const opcode = root.opcode;
 const Instruction = opcode.Instruction;
 pub const Interner = root.interner.Interner;
 const TablePool = root.table.TablePool;
-pub const errors = root.errors;
 pub const testing = root.testing;
 const TuplePool = root.tuple.TuplePool;
 test {
