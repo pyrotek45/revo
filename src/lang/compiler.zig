@@ -1100,9 +1100,9 @@ pub const Compiler = struct {
 
         const needs_index = params.len == 2 and !ast.isDiscardName(params[1].name);
 
-        const regs_after_init = self.active_registers;
         try self.compileRangeLoopBody(params, body, base_reg, needs_index);
-        self.active_registers = regs_after_init;
+        // after loop body is done, only loop_result is left on stack
+        self.active_registers = self.loop_result_regs.items[self.loop_result_regs.items.len - 1] + 1;
     }
 
     fn compileRangeLoopBody(
@@ -1269,10 +1269,6 @@ pub const Compiler = struct {
         try self.emitConst(Data.new.num(0));
         try self.emitStorageStore(idx_storage, false);
 
-        // default loop result is nil
-        try self.emitNil();
-        self.loop_result_regs.items[self.loop_result_regs.items.len - 1] = self.active_registers - 1;
-
         const loop_check: ProgramCounter = @intCast(self.instructions.items.len);
 
         // check idx < len(iter)
@@ -1308,7 +1304,20 @@ pub const Compiler = struct {
         }
 
         try self.compile(body, true);
-        try self.releaseRegister();
+
+        // mv body result to loop result
+        const body_result_reg: Register = @intCast(self.active_registers - 1);
+        const loop_result_reg: Register = @intCast(self.loop_result_regs.items[self.loop_result_regs.items.len - 1]);
+        if (body_result_reg != loop_result_reg) {
+            const move_res: Instruction = .{
+                .op = .move,
+                .a = loop_result_reg,
+                .b = body_result_reg,
+            };
+            try self.instructions.append(self.alloc, move_res);
+            try self.spans.append(self.alloc, self.active_span);
+        }
+        try self.releaseRegister(); // pop body result, loop_result left
 
         // idx = idx + 1
         try self.emitStorageLoad(idx_storage);
@@ -1439,8 +1448,8 @@ pub const Compiler = struct {
             \\ | x when x < 2 x
             \\ | x frec(x - 1) + frec(x - 2)
             \\
-            \\ frec(5)
-        , 5);
+            \\ frec(10)
+        , 55);
     }
 
     fn compileMatch(
@@ -1493,15 +1502,28 @@ pub const Compiler = struct {
             self.alloc.free(fail_jumps);
 
             if (matcher_expr) |me| try self.bindMatchPattern(me, subject_storage);
+            
             if (arm.guard) |guard| {
                 try self.compile(guard, true);
                 const guard_jump = try self.emitJump(.jump_if_false);
                 try fail_list.append(self.alloc, guard_jump);
             }
 
-            // prep for body compile
-            self.active_registers = arm_base_registers;
             try self.compile(arm.then, true);
+            
+            // move arm result to canonical result location
+            const arm_result_reg: Register = @intCast(self.active_registers - 1);
+            if (arm_result_reg != arm_base_registers) {
+                const move_instr: Instruction = .{
+                    .op = .move,
+                    .a = try reg(arm_base_registers),
+                    .b = try reg(arm_result_reg),
+                };
+                try self.instructions.append(self.alloc, move_instr);
+                try self.spans.append(self.alloc, self.active_span);
+            }
+            try self.releaseRegister(); // pop arm result
+            self.active_registers = arm_base_registers + 1;  // result is now at arm_base_registers
 
             const end_jump = try self.emitJump(.jump);
             try end_jumps.append(self.alloc, end_jump);
