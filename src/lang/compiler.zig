@@ -403,6 +403,7 @@ pub const Compiler = struct {
             // tech debt
             //
             .macro_expr => return self.fail(.UnsupportedSyntax, expr, "syntax must be expanded before compilation"),
+            .proc_macro => return self.fail(.UnsupportedSyntax, expr, "proc must be expanded before compilation"),
         }
     }
 

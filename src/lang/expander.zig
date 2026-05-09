@@ -176,6 +176,11 @@ fn walkExpr(
             .args = try ctx.walkSlice(allocator, v.args, ctx),
             .implicit_self = v.implicit_self,
         } }),
+        .proc_macro => |pm| alloc(allocator, expr.span, .{ .proc_macro = .{
+            .name = pm.name,
+            .param = pm.param,
+            .body = try ctx.walk(allocator, pm.body, ctx),
+        } }),
         .match_expr => |v| walkMatch(allocator, expr.span, v, Transform, ctx),
         .table => |entries| walkTable(allocator, expr.span, entries, Transform, ctx),
         else => expr,

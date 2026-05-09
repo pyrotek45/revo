@@ -154,8 +154,8 @@ pub const Binding = struct {
 };
 
 pub const Expr = union(enum) {
-    number: f64,
-    string: []const u8,
+    number: f64, // (:number, 123)
+    string: []const u8, // (:string, "asdf")
     multiline_string: []const u8,
     hash: []const u8,
     nil,
@@ -173,6 +173,8 @@ pub const Expr = union(enum) {
     con_expr: Binding,
     let_expr: Binding,
     global: Binding,
+    // ill probably ignore node's span field for now just do its expr
+    // (:assign_expr, (:ident, "aaa"), (:ident, "bbb"))
     assign_expr: struct { target: *Node, value: *Node },
     loop_expr: struct { body: *Node },
     for_loop: struct { params: []FnParam, iter: *Node, body: *Node },
@@ -195,6 +197,7 @@ pub const Expr = union(enum) {
     table: []TableEntry,
     struct_def: struct { name: []const u8, items: []StructItem },
     pipe_expr: struct { left: *Node, right: *Node },
+    proc_macro: struct { name: []const u8, param: FnParam, body: *Node },
 };
 
 pub const Node = struct {
@@ -341,6 +344,14 @@ pub const Node = struct {
                 try writer.writeByte(')');
                 try sep(writer, depth, 1);
                 try fn_expr.body.printAt(writer, child(depth));
+                try close(writer, depth);
+            },
+            .proc_macro => |pm| {
+                try writer.writeAll("(proc ( ");
+                try writer.writeAll(pm.param.name);
+                try writer.writeByte(')');
+                try sep(writer, depth, 1);
+                try pm.body.printAt(writer, child(depth));
                 try close(writer, depth);
             },
             .con_expr => |binding| try binding.printAt(writer, "const", depth),

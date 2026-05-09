@@ -26,7 +26,7 @@ pub fn build(vm: *VM, source: Source, opts: BuildOptions) !BuildResult {
         .ok => |ok| ok,
         .err => |failure| return .{ .err = .{ .parse = failure } },
     };
-    const expanded = switch (try expand(arena.allocator(), parsed)) {
+    const expanded = switch (try expandWithVm(vm, arena.allocator(), parsed)) {
         .ok => |ok| ok,
         .err => |err| return err,
     };
@@ -71,7 +71,8 @@ pub const Error = union(enum) {
 };
 
 pub const ParseResult = Result(Parsed, parser.ParseFailure);
-pub const ExpandResult = Result(Expanded, expander.ExpandError);
+pub const ExpandError = expander.ExpandError || proc.ExpandError;
+pub const ExpandResult = Result(Expanded, ExpandError);
 pub const LowerResult = Result(Artifact, compiler.LowerFailure);
 pub const BuildResult = Result(Artifact, Error);
 
@@ -97,8 +98,16 @@ pub fn parse(allocator: std.mem.Allocator, source: Source, opts: ParseOptions) !
 }
 
 pub fn expand(allocator: std.mem.Allocator, parsed: Parsed) !ExpandResult {
-    const root = expander.expandExpr(allocator, parsed.root) catch |err| return .{ .err = err };
-    return .{ .ok = .{ .root = root } };
+    const template_expanded = expander.expandExpr(allocator, parsed.root) catch |err| return .{ .err = err };
+    const final = expander.expandExpr(allocator, template_expanded) catch |err| return .{ .err = err };
+    return .{ .ok = .{ .root = final } };
+}
+
+pub fn expandWithVm(vm: *VM, allocator: std.mem.Allocator, parsed: Parsed) !ExpandResult {
+    const template_expanded = expander.expandExpr(allocator, parsed.root) catch |err| return .{ .err = err };
+    const proc_expanded = proc.expandExpr(vm, allocator, template_expanded) catch |err| return .{ .err = err };
+    const final = expander.expandExpr(allocator, proc_expanded) catch |err| return .{ .err = err };
+    return .{ .ok = .{ .root = final } };
 }
 
 pub fn lower(vm: *VM, expanded: Expanded, opts: LowerOptions) !LowerResult {
@@ -195,6 +204,7 @@ const ast = lang.ast;
 const Node = ast.Node;
 const compiler = lang.compiler;
 const expander = lang.expander;
+const proc = lang.proc;
 const lexer = lang.lexer;
 const parser = lang.parser;
 

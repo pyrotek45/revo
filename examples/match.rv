@@ -1,9 +1,5 @@
-# this is the one issue im trying to fix about match expressions
-fn frec(n) match n
-	| x when x < 2 x
-	| x frec(x - 1) + frec(x - 2)
-
-print(frec(20))
+## > match expressions, in revo
+ideal shape, when stable, is this
 
 let f = match os.open("./readme.md")
 | (:ok, file) file
@@ -12,3 +8,14 @@ let f = match os.open("./readme.md")
 	| :FileDNE panic("file does not exist")
 	| x panic("other error: ", x)
 end
+##
+
+const x = match (:number, 123)
+| (:number, v) print("is number", v)
+
+# this is the one issue im trying to fix about match expressions
+fn frec(n) match n
+	| x when x < 2 x
+	| x frec(x - 1) + frec(x - 2)
+
+print(frec(20))

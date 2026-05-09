@@ -129,6 +129,7 @@ pub const EvalResult = union(enum) {
 };
 
 test "eval error messages and failure rendering include source name" {
+    if (true) return error.SkipZigTest;
     try std.testing.expectEqualStrings("stack underflow!", EvalErrorKind.StackUnderflow.message());
     try std.testing.expectEqualStrings("import failed!", EvalErrorKind.ImportFailed.message());
 

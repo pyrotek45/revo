@@ -2,6 +2,7 @@ pub const ast = @import("ast.zig");
 pub const pipeline = @import("lang_pipeline.zig");
 pub const compiler = @import("compiler.zig");
 pub const expander = @import("expander.zig");
+pub const proc = @import("proc.zig");
 pub const lexer = @import("lexer.zig");
 pub const parser = @import("parser.zig");
 pub const testing = @import("testing.zig");
@@ -49,6 +50,7 @@ test {
     _ = @import("ast.zig");
     _ = @import("compiler.zig");
     _ = @import("expander.zig");
+    _ = @import("proc.zig");
     _ = @import("lexer.zig");
     _ = @import("parser.zig");
     _ = @import("testing.zig");

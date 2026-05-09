@@ -289,6 +289,7 @@ const Parser = struct {
             .kw_global => self.parseBinding(.global, token),
             .kw_let => self.parseBinding(.let_expr, token),
             .kw_macro => self.parseMacro(token),
+            .kw_proc => self.parseProc(token),
             .kw_struct => self.parseStruct(token),
             .minus => self.parseUnary(.negate, 60, token),
             .kw_not => self.parseUnary(.not, 35, token),
@@ -652,6 +653,34 @@ const Parser = struct {
             .pattern = pattern.text,
             .template = template.text,
         } });
+    }
+
+    /// proc name(param) body
+    /// no anonymous procs
+    fn parseProc(self: *Parser, start: Token) anyerror!*Node {
+        // check if this is a named function definition
+        if (!self.check(.ident)) return error.AnonProc;
+        const first_ident = self.advance();
+
+        if (self.check(.lparen)) {
+            _ = try self.expect(.lparen);
+
+            const name = try self.expectIdent();
+            const param: ast.FnParam = .{ .name = name.text };
+            _ = try self.expect(.rparen);
+            const body = try self.parseExpression(0);
+
+            return try self.allocExpr(
+                Span.merge(start.span(), body.span),
+                .{ .proc_macro = .{
+                    .param = param,
+                    .body = body,
+                    .name = first_ident.text,
+                } },
+            );
+        }
+        // neither colon, dot, nor lparen
+        return error.UnexpectedToken;
     }
 
     fn parseStruct(self: *Parser, start: Token) anyerror!*Node {

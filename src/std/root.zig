@@ -46,6 +46,7 @@ pub fn register_stdlib(vm: *revo.VM) !void {
     try @import("io.zig").register(vm);
     try typeUtils(vm);
     try registerIoGlobals(vm);
+    try @import("../lang/proc.zig").register(vm);
 }
 
 pub const NativeFn = *const fn (args: []const Data, vm: *VM) anyerror!NativeResult;
