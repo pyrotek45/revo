@@ -1,0 +1,8 @@
+let point = {x = 10, y = 20, z = 30}
+let sum = 0
+for i in 0..100000 do
+  sum = sum + point.x + point.y + point.z
+  sum = sum + point.x + point.y + point.z
+  sum = sum + point.x + point.y + point.z
+end
+sum

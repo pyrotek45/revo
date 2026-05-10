@@ -1,0 +1,10 @@
+let sum = 0
+for i in 0..10000 do
+  let o1 = {v = 1}
+  let o2 = {v = 2}
+  let o3 = {v = 3}
+  let o4 = {v = 4}
+  let o5 = {v = 5}
+  sum = sum + o1.v + o2.v + o3.v + o4.v + o5.v
+end
+sum

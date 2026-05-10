@@ -1,0 +1,13 @@
+let a = 1
+let b = 2
+let c = 3
+let d = 4
+let e = 5
+for i in 0..100000 do
+  a = a + b
+  c = c - d
+  e = e * a
+  b = b / c
+  d = d + 1
+end
+a + b + c + d + e

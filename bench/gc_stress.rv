@@ -1,0 +1,8 @@
+let sum = 0
+for i in 0..5000 do
+  let obj = {x = i, y = i * 2, z = i + 1}
+  sum = sum + obj.x
+  sum = sum + obj.y
+  sum = sum + obj.z
+end
+sum
