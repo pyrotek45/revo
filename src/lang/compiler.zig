@@ -233,7 +233,6 @@ pub const Compiler = struct {
     fn compileRoot(self: *Compiler, expr: *const Node) InternalLowerError!void {
         try self.compileClosureBody(&.{}, expr, "__main", null);
         try self.emit(.call, 0);
-        try self.emit(.unwrap_result, 0);
         try self.emit(.halt, 0);
     }
 

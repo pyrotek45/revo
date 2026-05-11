@@ -1209,36 +1209,20 @@ fn returnRegister(self: *VM, instr: Instruction) EvalError!void {
     try self.closeUpvalues(frame.base);
     self.currentFiber().pc = frame.return_addr;
 
-    if (!(self.currentFiber().frames.items.len == 0 or self.currentFiber().pc >= self.currentFiber().program.len)) {
-        const parent = try self.currentFrame();
-        const result_slot = parent.base + frame.result_register;
-        self.currentFiber().slots.items.len = result_slot + 1;
-        try self.writeAbsoluteSlot(result_slot, result);
+    if (self.currentFiber().frames.items.len == 0 or self.currentFiber().pc >= self.currentFiber().program.len) {
+        const finished_id = self.sched.current_fiber;
+        try self.sched.finishFiber(self.runtime.alloc, finished_id, result);
+        if (finished_id == 0) {
+            self.currentFiber().slots.items.len = 0;
+            try self.push(result);
+        }
+        return;
     }
 
-    const finished_id = self.sched.current_fiber;
-    if (finished_id == 0 and result == .tuple) {
-        const tuple = try self.tuples.get(result.tuple);
-        if (tuple.items.len < 2) {
-            const tag = tuple.items[0];
-            if (tag == .atom and tag.atom == revo.core_atoms.atom_id(.err)) {
-                var buf = try std.ArrayList(u8).initCapacity(self.runtime.alloc, 16);
-                defer buf.deinit(self.runtime.alloc);
-                tuple.items[1].write(&buf, self, .display) catch |err| switch (err) {
-                    error.OutOfMemory => return error.OutOfMemory,
-                    else => return error.Panic,
-                };
-                try self.setPanicMessage(buf.items);
-                return error.Panic;
-            }
-        }
-    }
-    try self.sched.finishFiber(self.runtime.alloc, finished_id, result);
-    if (finished_id == 0) {
-        self.currentFiber().slots.items.len = 0;
-        try self.push(result);
-    }
-    return;
+    const parent = try self.currentFrame();
+    const result_slot = parent.base + frame.result_register;
+    self.currentFiber().slots.items.len = result_slot + 1;
+    try self.writeAbsoluteSlot(result_slot, result);
 }
 
 fn spawnRegister(self: *VM, instr: Instruction) EvalError!void {
