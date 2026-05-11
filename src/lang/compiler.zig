@@ -66,8 +66,8 @@ pub const LowerError = error{
 // w/ internal sentinel used to short-circuit after recording failure
 const InternalLowerError = LowerError || error{LoweringFailed};
 
-pub fn lowerExprArtifactReport(vm: *VM, expr: *const Node) !ArtifactResult {
-    var compiler = try Compiler.init(vm);
+pub fn lowerExprArtifactReport(vm: *VM, expr: *const Node, test_mode: bool) !ArtifactResult {
+    var compiler = try Compiler.init(vm, test_mode);
     defer compiler.deinit();
 
     compiler.compileRoot(expr) catch |err| switch (err) {
@@ -152,6 +152,7 @@ pub const Compiler = struct {
     vm: *VM,
     comp_vm: *VM, // separate reference for compexpr execution during compilation
     alloc: std.mem.Allocator,
+    test_mode: bool,
     instructions: std.ArrayList(Instruction),
     functions: std.ArrayList(FunctionState),
     temp_counter: usize = 0,
@@ -170,11 +171,12 @@ pub const Compiler = struct {
     active_registers: usize = 0,
     max_registers: usize = 0,
 
-    fn init(vm: *VM) !Compiler {
+    fn init(vm: *VM, test_mode: bool) !Compiler {
         return .{
             .vm = vm,
             .comp_vm = vm, // just use the same one for now
             .alloc = vm.runtime.alloc,
+            .test_mode = test_mode,
             .instructions = try std.ArrayList(Instruction).initCapacity(vm.runtime.alloc, 32),
             .functions = try std.ArrayList(FunctionState).initCapacity(vm.runtime.alloc, 4),
             .spans = try std.ArrayList(ast.Span).initCapacity(vm.runtime.alloc, 32),
@@ -411,6 +413,16 @@ pub const Compiler = struct {
             //
             .macro_expr => return self.fail(.UnsupportedSyntax, expr, "syntax must be expanded before compilation"),
             .proc_macro => return self.fail(.UnsupportedSyntax, expr, "proc must be expanded before compilation"),
+            .test_block => |block| {
+                if (self.test_mode) {
+                    try self.emit(.load_global, try self.vm.internAtom("print"));
+                    try self.emitConst(try self.vm.ownDataString(block.name));
+                    try self.emit(.call, 1);
+                    try self.releaseRegister();
+                    try self.compile(block.body, false);
+                }
+                try self.emitNil();
+            },
         }
     }
 
@@ -506,7 +518,7 @@ pub const Compiler = struct {
     // compile the comp as a complete program in isolation
     fn compileComp(self: *Compiler, expr: *Node) InternalLowerError!void {
         // implies shared runtime
-        var temp_compiler = Compiler.init(self.vm) catch {
+        var temp_compiler = Compiler.init(self.vm, self.test_mode) catch {
             self.failure = .{
                 .kind = .InvalidBytecode,
                 .span = expr.span,

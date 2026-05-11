@@ -641,7 +641,7 @@ pub fn tonumber(args: []const Data, vm: *VM) !NativeResult {
 /// asserts value is truthy
 /// errors with "assertion failed" if value is false or nil
 pub fn assert_(args: []const Data, vm: *VM) !NativeResult {
-    if (revo.isFalse(args[0])) return .other("assertion failed");
+    if (revo.isFalse(args[0])) return resultTuple(vm, .err, try vm.ownDataString("assertion failed"));
     return okAtom(vm);
 }
 

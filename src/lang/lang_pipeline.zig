@@ -23,6 +23,7 @@ pub fn build(vm: *VM, source: Source, opts: BuildOptions) !BuildResult {
     return switch (try lower(vm, expanded, .{
         .install_debug_info = opts.install_debug_info,
         .source = source,
+        .test_mode = opts.test_mode,
     })) {
         .ok => |artifact| .{ .ok = artifact },
         .err => |failure| .{ .err = .{ .lower = failure } },
@@ -41,10 +42,12 @@ pub const ParseOptions = struct {
 pub const LowerOptions = struct {
     install_debug_info: bool = false,
     source: ?Source = null,
+    test_mode: bool = false,
 };
 pub const BuildOptions = struct {
     include_default_macros: bool = true,
     install_debug_info: bool = true,
+    test_mode: bool = false,
 };
 
 pub const Parsed = struct {
@@ -101,7 +104,7 @@ pub fn expandWithVm(vm: *VM, allocator: std.mem.Allocator, parsed: Parsed) !Expa
 }
 
 pub fn lower(vm: *VM, expanded: Expanded, opts: LowerOptions) !LowerResult {
-    const lowered = try compiler.lowerExprArtifactReport(vm, expanded.root);
+    const lowered = try compiler.lowerExprArtifactReport(vm, expanded.root, opts.test_mode);
     return switch (lowered) {
         .ok => |artifact| blk: {
             if (opts.install_debug_info) {

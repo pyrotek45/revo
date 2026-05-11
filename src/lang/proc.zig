@@ -383,7 +383,7 @@ fn runCompileTimeProc(parent_vm: *revo.VM, root: *Node, proc_name: []const u8) E
     var vm = revo.VM.init(parent_vm.runtime) catch return error.ProcCompileFailed;
     errdefer vm.deinit();
 
-    const artifact_report = compiler.lowerExprArtifactReport(&vm, root) catch return error.ProcCompileFailed;
+    const artifact_report = compiler.lowerExprArtifactReport(&vm, root, false) catch return error.ProcCompileFailed;
     const artifact = switch (artifact_report) {
         .ok => |ok| ok,
         .err => |failure| {

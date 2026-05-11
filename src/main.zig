@@ -18,6 +18,7 @@ const USAGE =
     \\  -d               output the last value the program evaluated
     \\  -b               compile script to bytecode (.rvo)
     \\  -o path          output path for -b (default: input with .rvo extension)
+    \\  --test           run test blocks
     \\  --bench          run with performance counters
     \\  --dis            show bytecode disassembly instead of running
     \\  -h, --help       show this help message
@@ -76,6 +77,7 @@ fn runMain(init: std.process.Init) !void {
     var compile_to_bytecode = false;
     var output_path: ?[]const u8 = null;
     var bench_mode = false;
+    var test_mode = false;
     var bench_iters: u32 = 10;
     var echo_last: bool = false;
     var i: usize = 1;
@@ -104,6 +106,8 @@ fn runMain(init: std.process.Init) !void {
             output_path = args[i];
         } else if (std.mem.eql(u8, arg, "--bench")) {
             bench_mode = true;
+        } else if (std.mem.eql(u8, arg, "--test")) {
+            test_mode = true;
         } else if (std.mem.eql(u8, arg, "--iters")) {
             i += 1;
             if (i >= args.len) {
@@ -140,7 +144,7 @@ fn runMain(init: std.process.Init) !void {
         };
         defer vm.deinit();
 
-        const build_result = revo.lang.build(&vm, .{ .name = "<inline>", .text = code }, .{}) catch |err| {
+        const build_result = revo.lang.build(&vm, .{ .name = "<inline>", .text = code }, .{ .test_mode = test_mode }) catch |err| {
             printPrettyError(init, "compilation - {}", .{err});
             return error.CompilationError;
         };
@@ -209,7 +213,7 @@ fn runMain(init: std.process.Init) !void {
         } else {
             // source path
             if (compile_to_bytecode) {
-                try compileToBytecode(init, init.gpa, arena, path, source, output_path);
+                try compileToBytecode(init, init.gpa, arena, path, source, output_path, test_mode);
             } else if (show_dis) {
                 var vm = VM.init(.{ .alloc = init.gpa, .io = init.io }) catch |err| {
                     printPrettyError(init, "initializing vm - {}", .{err});
@@ -217,7 +221,7 @@ fn runMain(init: std.process.Init) !void {
                 };
                 defer vm.deinit();
 
-                const build_result = revo.lang.build(&vm, .{ .name = path, .text = source }, .{}) catch |err| {
+                const build_result = revo.lang.build(&vm, .{ .name = path, .text = source }, .{ .test_mode = test_mode }) catch |err| {
                     printPrettyError(init, "compilation error - {}", .{err});
                     return error.CompilationError;
                 };
@@ -238,9 +242,9 @@ fn runMain(init: std.process.Init) !void {
                 defer init.gpa.free(artifact.spans);
                 printDisassembly(artifact, source, false);
             } else if (bench_mode) {
-                try benchSource(init, init.gpa, path, source, bench_iters, echo_last);
+                try benchSource(init, init.gpa, path, source, bench_iters, echo_last, test_mode);
             } else {
-                try runSource(init, init.gpa, path, source, echo_last);
+                try runSource(init, init.gpa, path, source, echo_last, test_mode);
             }
         }
         if (!interactive) return;
@@ -289,14 +293,14 @@ fn printResult(init: std.process.Init, vm: *VM) !void {
     std.debug.print("{s}", .{s});
 }
 
-fn runSource(init: std.process.Init, gpa: Allocator, path: []const u8, source: []const u8, echo_last: bool) !void {
+fn runSource(init: std.process.Init, gpa: Allocator, path: []const u8, source: []const u8, echo_last: bool, test_mode: bool) !void {
     var vm = VM.init(.{ .alloc = gpa, .io = init.io }) catch |err| {
         printPrettyError(init, "initializing vm - {}", .{err});
         return error.VmInitError;
     };
     defer vm.deinit();
 
-    const build_result = revo.lang.build(&vm, .{ .name = path, .text = source }, .{}) catch |err| {
+    const build_result = revo.lang.build(&vm, .{ .name = path, .text = source }, .{ .test_mode = test_mode }) catch |err| {
         printPrettyError(init, "compilation - {}", .{err});
         return error.CompilationError;
     };
@@ -348,14 +352,14 @@ fn runBytecode(init: std.process.Init, gpa: Allocator, path: []const u8, bytecod
     }
 }
 
-fn compileToBytecode(init: std.process.Init, gpa: Allocator, arena: Allocator, path: []const u8, source: []const u8, opt_output_path: ?[]const u8) !void {
+fn compileToBytecode(init: std.process.Init, gpa: Allocator, arena: Allocator, path: []const u8, source: []const u8, opt_output_path: ?[]const u8, test_mode: bool) !void {
     var vm = VM.init(.{ .alloc = gpa, .io = init.io }) catch |err| {
         printPrettyError(init, "initializing vm - {}", .{err});
         return error.VmInitError;
     };
     defer vm.deinit();
 
-    const build_result = revo.lang.build(&vm, .{ .name = path, .text = source }, .{}) catch |err| {
+    const build_result = revo.lang.build(&vm, .{ .name = path, .text = source }, .{ .test_mode = test_mode }) catch |err| {
         printPrettyError(init, "compilation error - {}", .{err});
         return error.CompilationError;
     };
@@ -409,14 +413,14 @@ fn compileToBytecode(init: std.process.Init, gpa: Allocator, arena: Allocator, p
     printPrettySuccess(init, "compiled to {s}", .{output_path});
 }
 
-fn benchSource(init: std.process.Init, gpa: Allocator, path: []const u8, source: []const u8, iters: u32, echo_last: bool) !void {
+fn benchSource(init: std.process.Init, gpa: Allocator, path: []const u8, source: []const u8, iters: u32, echo_last: bool, test_mode: bool) !void {
     var vm = VM.init(.{ .alloc = gpa, .io = init.io }) catch |err| {
         printPrettyError(init, "initializing vm - {}", .{err});
         return error.VmInitError;
     };
     defer vm.deinit();
 
-    const build_result = revo.lang.build(&vm, .{ .name = path, .text = source }, .{}) catch |err| {
+    const build_result = revo.lang.build(&vm, .{ .name = path, .text = source }, .{ .test_mode = test_mode }) catch |err| {
         printPrettyError(init, "compilation error - {}", .{err});
         return error.CompilationError;
     };

@@ -264,6 +264,14 @@ test "comparisons" {
     try t.top_true("assert(\"a\" < \"b\")");
 }
 
+test "test blocks run in test mode" {
+    try t.top_nil_test(
+        \\test "smoke" do
+        \\    assert(2 == 2)?
+        \\end
+    , true);
+}
+
 test "hash literals are real atoms" {
     try t.top_atom(":good", "good");
 }

@@ -49,6 +49,23 @@ fn compileChecked(vm: *revo.VM, source: []const u8) ![]revo.Instruction {
     };
 }
 
+fn compileCheckedMode(vm: *revo.VM, source: []const u8, test_mode: bool) ![]revo.Instruction {
+    const result = try lang.build(vm, .{ .text = source }, .{
+        .install_debug_info = true,
+        .test_mode = test_mode,
+    });
+    return switch (result) {
+        .ok => |artifact| blk: {
+            alloc.free(artifact.spans);
+            break :blk artifact.instructions;
+        },
+        .err => |lang_err| {
+            printLangError(source, lang_err);
+            return error.LangFailure;
+        },
+    };
+}
+
 fn runChecked(vm: *revo.VM, source: []const u8) !void {
     const result = try vm.runReport();
     switch (result) {
@@ -94,6 +111,30 @@ pub fn topResult(source: []const u8, module_dir: ?[]const u8) !TopResult {
     } else "<source>";
     defer if (module_dir != null) alloc.free(src_name);
     try runTopModuleChecked(&vm, source, src_name);
+    return .{
+        .vm = vm,
+        .value = vm.mainResult(),
+    };
+}
+
+// TODO: clean this up
+pub fn topResultMode(source: []const u8, module_dir: ?[]const u8, test_mode: bool) !TopResult {
+    var vm = try revo.VM.init(runtime());
+    const src_name: []const u8 = if (module_dir) |dir| blk: {
+        vm.module_dir = dir;
+        const joined = try std.fs.path.join(alloc, &.{ dir, "<source>" });
+        break :blk joined;
+    } else "<source>";
+    defer if (module_dir != null) alloc.free(src_name);
+
+    const program = try compileCheckedMode(&vm, source, test_mode);
+    defer alloc.free(program);
+    const result = try revo.module.runCompiledModuleReport(&vm, src_name, program);
+    switch (result) {
+        .ok => {},
+        .err => return error.RuntimeFailure,
+    }
+
     return .{
         .vm = vm,
         .value = vm.mainResult(),
@@ -185,6 +226,12 @@ pub fn top_type(source: []const u8, expected: revo.memory.Type) !void {
 
 pub fn top_nil(source: []const u8) !void {
     var result = try topResult(source, null);
+    defer result.deinit();
+    try std.testing.expectEqual(revo.Data.new.nil(), result.value);
+}
+
+pub fn top_nil_test(source: []const u8, test_mode: bool) !void {
+    var result = try topResultMode(source, null, test_mode);
     defer result.deinit();
     try std.testing.expectEqual(revo.Data.new.nil(), result.value);
 }
