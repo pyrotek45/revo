@@ -1,0 +1,25 @@
+## > test blocks, in revo
+
+they let you keep small smoke tests next to the code they exercise
+they only run when you pass `--test`
+they fail only when you return an error
+
+##
+fn add(a, b) a + b
+
+# the body sees the same module scope as the rest of the file
+test "addition" do
+	assert(add(20, 22) == 22)?
+end
+
+# `?` still works inside a test body, so result tuples stay the same
+test "unwrap result tuples" do
+	const value = (:ok, 10)?
+	assert(value == 10)?
+end
+
+# when all expressions succeed, the block just falls through
+test "truthy checks" do
+	assert(len("hello") == 5)?
+	4
+end

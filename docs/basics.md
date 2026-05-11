@@ -379,6 +379,26 @@ end
 
 the toplevel is implicitly a function, so returning an error from it panics too
 
+## test blocks
+
+`test "name" do ... end` defines a small test body that only runs when you pass `--test`
+it uses the same module scope as the rest of the file, so it can call local helpers directly
+
+```ruby
+fn add(a, b) a + b
+
+test "addition" do
+    assert(add(20, 22) == 42)?
+end
+
+test "unwrap result tuples" do
+    const value = (:ok, 10)?
+    assert(value == 10)?
+end
+```
+
+if a test body hits `?` on an error, it behaves like the rest of the language and panics at top-level
+
 ## orelse
 
 `orelse` assigns a default value when an expression is nil or an error
