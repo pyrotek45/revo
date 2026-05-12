@@ -725,34 +725,23 @@ const Parser = struct {
         } });
     }
 
-    /// suite "name" do test ... test end
+    /// suite "name" do ... end
     fn parseSuite(self: *Parser, start: Token) anyerror!*Node {
         const name = try self.expect(.string);
         const body_start = try self.expect(.kw_do);
-        var tests = try std.ArrayList(*Node).initCapacity(self.alloc, 4);
-        var end_span = body_start.span();
+        const body = try self.parseBlock(body_start);
 
-        while (!self.check(.kw_end) and !self.check(.eof)) {
-            if (self.check(.kw_test)) {
-                const test_token = self.advance();
-                const test_node = try self.parseTest(test_token);
-                try tests.append(self.alloc, test_node);
-                end_span = test_node.span;
-            } else if (self.check(.kw_suite)) {
-                const suite_token = self.advance();
-                const suite_node = try self.parseSuite(suite_token);
-                try tests.append(self.alloc, suite_node);
-                end_span = suite_node.span;
-            } else {
-                return error.UnexpectedToken;
-            }
-        }
+        // wrap suite body in a closure
+        const suite_fn = try self.allocExpr(Span.merge(body_start.span(), body.span), .{
+            .fn_expr = .{
+                .params = &.{},
+                .body = body,
+            },
+        });
 
-        const end_token = try self.expect(.kw_end);
-        end_span = end_token.span();
-        return self.allocExpr(Span.merge(start.span(), end_span), .{ .test_suite = .{
+        return self.allocExpr(Span.merge(start.span(), body.span), .{ .test_suite = .{
             .name = name.text,
-            .tests = try tests.toOwnedSlice(self.alloc),
+            .body = suite_fn,
         } });
     }
 

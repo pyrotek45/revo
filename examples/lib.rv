@@ -14,9 +14,3 @@ struct Version {
 
 const v = Version.of_string("a.1.0")
 print(v)
-
-const content = fs.open(path)? : f do
-	f:read() orelse ""
-end
-
-asdf("readme.md")

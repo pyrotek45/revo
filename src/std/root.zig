@@ -29,6 +29,7 @@ pub fn register_stdlib(vm: *revo.VM) !void {
         .{ .name = "@struct_new", .f = define(&[_]TypeSpec{ .table, .table }, struct_new) },
         .{ .name = "@try", .f = define(&[_]TypeSpec{.tuple}, try_) },
         .{ .name = "@dotest", .f = define(&[_]TypeSpec{ .string, .function }, dotest) },
+        .{ .name = "@dosuite", .f = define(&[_]TypeSpec{ .string, .function }, dosuite) },
         .{ .name = "@eval", .f = define(&[_]TypeSpec{.string}, @import("stupid.zig").eval) },
         .{ .name = "chan", .f = defineVariadic(&[_]TypeSpec{}, chan_new) },
         .{ .name = "send", .f = define(&[_]TypeSpec{ .tuple, .any }, chan_send) },
@@ -335,16 +336,23 @@ test "fmt %? uses debug rendering" {
 pub fn dotest(args: []const Data, vm: *VM) !NativeResult {
     const name = args[0].string;
     const body = args[1].function;
+    var buf: [128]u8 = undefined;
+    var w = vm.runtime.stdout.writer(vm.runtime.io, &buf);
+    defer w.flush() catch {};
+
     std.debug.print("* test \"{s}\"...\n", .{try vm.strings.get(name)});
     const res = vm.callFunction(.{ .function = body }, &[0]Data{}) catch |err| {
-        const failure = vm.evalFailureForStd(err);
-        var buf = std.Io.Writer.Allocating.init(vm.runtime.alloc);
-        defer buf.deinit();
-        failure.render(vm.runtime.alloc, &buf.writer, vm.currentDebugSource() orelse "") catch {
-            std.debug.print("* hard-failed: \"{s}\"\n", .{@errorName(err)});
+        const failure = vm.evalFailure(err);
+        failure.render(vm.runtime.alloc, &w.interface, vm.currentDebugSource() orelse "") catch {
+            try revo.pretty.printError(
+                vm.runtime.alloc,
+                &w.interface,
+                "hard-fail - {s}",
+                .{@errorName(err)},
+            );
+            // std.debug.print("!! hard-failed: \"{s}\"\n", .{@errorName(err)});
             return .{ .ok = Data.new.nil() };
         };
-        std.debug.print("{s}\n", .{buf.written()});
         return .{ .ok = Data.new.nil() };
     };
     // only react to err tuple
@@ -356,13 +364,36 @@ pub fn dotest(args: []const Data, vm: *VM) !NativeResult {
         if (tpl.items[0] != .atom or tpl.items[0].atom != revo.core_atoms.atom_id(.err))
             return .{ .ok = Data.new.nil() };
 
-        var buf = try std.ArrayList(u8).initCapacity(vm.runtime.alloc, 4);
-        defer buf.deinit(vm.runtime.alloc);
-        try append_data(&buf, tpl.items[1], vm, .display);
+        var obuf = try std.ArrayList(u8).initCapacity(vm.runtime.alloc, 4);
+        defer obuf.deinit(vm.runtime.alloc);
+        try append_data(&obuf, tpl.items[1], vm, .debug);
 
-        std.debug.print("* failed: {s}\n", .{buf.items});
+        try revo.pretty.printError(
+            vm.runtime.alloc,
+            &w.interface,
+            "fail - {s}",
+            .{obuf.items},
+        );
+        // std.debug.print("* failed: {s}\n", .{buf.items});
     }
     return .{ .ok = Data.new.nil() };
+}
+
+/// internal, pls dont use. runs a test suite
+pub fn dosuite(args: []const Data, vm: *VM) !NativeResult {
+    const body = args[1].function;
+    _ = vm.callFunction(.{ .function = body }, &[0]Data{}) catch |err| {
+        const failure = vm.evalFailure(err);
+        var buf = std.Io.Writer.Allocating.init(vm.runtime.alloc);
+        defer buf.deinit();
+        failure.render(vm.runtime.alloc, &buf.writer, vm.currentDebugSource() orelse "") catch {
+            std.debug.print("* suite hard-failed: \"{s}\"\n", .{@errorName(err)});
+            return .okCa(.nil);
+        };
+        std.debug.print("{s}\n", .{buf.written()});
+    };
+
+    return .okCa(.nil);
 }
 
 pub fn debug_(args: []const Data, vm: *VM) !NativeResult {
@@ -1132,6 +1163,9 @@ pub const NativeResult = union(enum) {
     }
     pub fn okData(d: Data) NativeResult {
         return .{ .ok = d };
+    }
+    pub fn okCa(a: revo.core_atoms) NativeResult {
+        return .{ .ok = .{ .atom = a.atom_id() } };
     }
     pub fn other(message: []const u8) NativeResult {
         return .{ .err = .{ .other = message } };

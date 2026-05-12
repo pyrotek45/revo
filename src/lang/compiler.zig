@@ -252,10 +252,10 @@ pub const Compiler = struct {
 
         try out.appendSlice(self.alloc, self.test_suite_names.items[0]);
         for (self.test_suite_names.items[1..]) |suite_name| {
-            try out.appendSlice(self.alloc, "\" > \"");
+            try out.appendSlice(self.alloc, "::");
             try out.appendSlice(self.alloc, suite_name);
         }
-        try out.appendSlice(self.alloc, "\" > \"");
+        try out.appendSlice(self.alloc, "::");
         try out.appendSlice(self.alloc, test_name);
         return out.toOwnedSlice(self.alloc);
     }
@@ -446,11 +446,18 @@ pub const Compiler = struct {
             },
             .test_suite => |suite| {
                 if (self.test_mode) {
+                    const suite_label = try self.formatSuiteTestName(suite.name);
+                    defer self.alloc.free(suite_label);
+                    try self.emit(.load_global, try self.vm.internAtom("@dosuite"));
+                    try self.emitConst(try self.vm.ownDataString(suite_label));
+
+                    // push for nested tests
                     try self.test_suite_names.append(self.alloc, suite.name);
                     defer _ = self.test_suite_names.pop();
-                    for (suite.tests) |test_node| {
-                        try self.compile(test_node, false);
-                    }
+
+                    try self.compile(suite.body, true);
+                    try self.emit(.call, 2);
+                    try self.releaseRegister();
                 }
                 try self.emitNil();
             },

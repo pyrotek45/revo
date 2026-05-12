@@ -769,7 +769,7 @@ pub fn callFunction(self: *VM, callee: Data, args: []const Data) EvalError!Data 
     return result;
 }
 
-fn evalFailure(self: *VM, err: EvalError) EvalFailure {
+pub fn evalFailure(self: *VM, err: EvalError) EvalFailure {
     const kind: EvalErrorKind = switch (err) {
         inline else => |tag| @field(EvalErrorKind, @errorName(tag)),
     };
@@ -836,11 +836,6 @@ fn evalFailure(self: *VM, err: EvalError) EvalFailure {
     }
     failure.trace_len = out_idx;
     return failure;
-}
-
-/// TODO: dont
-pub fn evalFailureForStd(self: *VM, err: EvalError) EvalFailure {
-    return self.evalFailure(err);
 }
 
 pub fn callMetamethodByAtom(self: *VM, a: Data, b: Data, atom: mem.AtomID) !bool {
