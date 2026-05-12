@@ -210,7 +210,7 @@ pub const Compiler = struct {
 
     /// pops the top register from the stack
     fn popRegister(self: *Compiler) void {
-        // if (self.active_registers == 0) return; // probably gonna be caught anyways so idk if this goes here
+        std.debug.assert(self.active_registers > 0);
         self.active_registers -= 1;
         if (self.currentFunctionState()) |state| {
             if (self.active_registers < state.next_slot) self.active_registers = state.next_slot;
@@ -580,6 +580,15 @@ pub const Compiler = struct {
         try std.testing.expectError(error.LoweringFailed, compiler.compileRoot(root));
         try std.testing.expectEqual(@as(usize, 0), compiler.functions.items.len);
         try std.testing.expectEqual(@as(usize, 0), compiler.active_registers);
+    }
+
+    test "if branch locals do not leak" {
+        try testing.expectRuntimeError(
+            \\ if :true do
+            \\   let x = 1
+            \\ end
+            \\ x
+        , .UndefinedVariable);
     }
 
     fn compilePipe(self: *Compiler, left: *const Node, right: *const Node) InternalLowerError!void {
@@ -1972,24 +1981,39 @@ pub const Compiler = struct {
         then_expr: *const Node,
         else_expr: ?*Node,
     ) InternalLowerError!void {
+        const state = self.currentFunctionState() orelse
+            return self.fail(.UnsupportedSyntax, condition, "if requires function scope");
+
+        const saved_next_slot = state.next_slot;
         const saved_active = self.active_registers;
         const saved_max = self.max_registers;
         errdefer {
             self.active_registers = saved_active;
             self.max_registers = saved_max;
+            state.next_slot = saved_next_slot;
         }
 
         try self.compile(condition, true);
         const else_jump = try self.emitJump(.jump_if_false);
         const branch_base_registers = self.active_registers;
+
+        try self.pushScope();
+        errdefer self.popScope();
         try self.compile(then_expr, true);
+        self.popScope();
         const then_registers = self.active_registers;
         const end_jump = try self.emitJump(.jump);
         self.patchJump(else_jump);
         self.active_registers = branch_base_registers;
+        state.next_slot = saved_next_slot;
+
+        try self.pushScope();
+        errdefer self.popScope();
         if (else_expr) |branch| try self.compile(branch, true) else try self.emitNil();
+        self.popScope();
         if (then_registers != self.active_registers) return error.InvalidBytecode;
         self.patchJump(end_jump);
+        state.next_slot = saved_next_slot;
     }
 
     fn compileAnd(
