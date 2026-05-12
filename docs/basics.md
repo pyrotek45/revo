@@ -390,23 +390,23 @@ fn multiply(a, b) a * b
 
 # the body sees the same module scope as the rest of the file
 test "addition" do
-	assert(add(20, 22) == 42)?
-	assert(add(20, 22) != 22)?
+	expect(add(20, 22) == 42)?
+	expect(add(20, 22) != 22)?
 end
 
 # you can also skip tests
 test/skip "subtraction (not implemented)" do
-  assert(sub(2, 3) == 5)?
+  expect(sub(2, 3) == 5)?
 end
 
 # you can combine them into suites just like this
 suite "math operations" do
   test "addition" do
-    assert(add(1, 1) == 2)?
+    expect(add(1, 1) == 2)?
   end
 
   test "multiply" do
-    assert(multiply(3, 4) == 12)?
+    expect(multiply(3, 4) == 12)?
   end
 end
 
@@ -414,7 +414,7 @@ end
 const x = test "nothing" do
 	4
 end
-assert(x == :nil)?
+assert(x == :nil)
 ```
 
 if a test body hits `?` on an error, it behaves like the rest of the language and panics at top-level

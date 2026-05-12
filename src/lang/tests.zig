@@ -267,7 +267,7 @@ test "comparisons" {
 test "test blocks run in test mode" {
     try t.top_nil_test(
         \\test "smoke" do
-        \\    assert(2 == 2)?
+        \\    expect(2 == 2)?
         \\end
     , true);
 }
@@ -278,7 +278,7 @@ test "test blocks render eval failures and continue" {
         \\    panic("boom")
         \\end
         \\test "still runs" do
-        \\    assert(2 == 2)?
+        \\    expect(2 == 2)?
         \\end
     , true);
 }

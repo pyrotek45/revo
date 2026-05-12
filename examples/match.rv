@@ -2,9 +2,9 @@
 ideal shape, when stable, is this
 
 ##
-let f = match fs.open(".")
+let f = match fs.open("readme.md")
 | (:ok, file) file
-| (:err, e) panic("e", e)
+| (:err, e) panic(e)
 
 print(f:read())
 
