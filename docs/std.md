@@ -73,10 +73,10 @@ splits string by delimiter into table
 ### - `string:trim() -> string`
 trims whitespace from both ends
 
-### - `string:starts_with(prefix: string) -> bool`
+### - `string:starts_with?(prefix: string) -> bool`
 checks if string starts with prefix
 
-### - `string:ends_with(suffix: string) -> bool`
+### - `string:ends_with?(suffix: string) -> bool`
 checks if string ends with suffix
 
 ### - `table:reverse() -> table`
@@ -94,7 +94,7 @@ converts string to table of characters
 returns ASCII code of first character
 "a":ascii() => 97
 
-### - `table:contains(value) -> bool`
+### - `table:contains?(value) -> bool`
 checks if table contains value
 
 ### - `table:index_of(value) -> number | nil`
@@ -151,7 +151,7 @@ returns all keys as table (array indices + hash keys)
 ### - `table:values() -> table`
 returns all values as table
 
-### - `table:has(key: any) -> bool`
+### - `table:has?(key: any) -> bool`
 checks if key exists in table
 
 ### - `table:copy() -> table`
@@ -182,7 +182,7 @@ flattens nested tables into single array
 ### - `table:index_of(value) -> number | nil`
 ret 0-based index of value or nil if not found
 
-### - `table:contains(value) -> bool`
+### - `table:contains?(value) -> bool`
 checks if table contains value
 
 ### - `table:unique() -> table`
@@ -206,20 +206,45 @@ converts table to debug string
 ---
 # file
 
-### - `read(arg0: any)`
+### - `file:read() -> !string`
+reads the full file contents as a string
 
-### - `write(arg0: any, arg1: any)`
+### - `file:write(data: any, ?permissions: atom|number) -> !number`
+overwrites the file with the provided string
+optional permissions default to the platform file default
 
-### - `stat(arg0: any)`
+### - `file:append(data: any, ?permissions: atom|number) -> !number`
+appends data to the file, creating it if needed
+optional permissions default to the platform file default
 
-### - `close(arg0: any)`
+### - `file:stat() -> !table`
+get file metadata as a table
 
-### - `readdir(arg0: any)`
+### - `file:close() -> !atom`
+closes a file handle table
+this is currently a logical close for wrapper handles
 
 ---
 # fs
 
-### - `open(arg0: string)`
+### - `fs.open(path: string) -> !table`
+wraps a path in a file handle table
+use `file.close()` when you're done with the handle
+
+### - `fs.readdir(path: string) -> !table`
+ret: table of directory entries
+
+### - `fs.exists?(path: string) -> !atom`
+does path exist?
+
+### - `table:remove(pos: number) -> any`
+removes element at position, returns removed value
+
+### - `fs.mkdir(path: string, ?permissions: atom|number) -> !atom`
+creates a directory, using default permissions when omitted
+
+### - `fs.rename(old_path: string, new_path: string) -> !atom`
+renames a file or directory
 
 ---
 # net
@@ -293,20 +318,20 @@ find((1,2,3,4), fn(x) = x > 2)
 find({a=1, b=2}, fn(v) = v > 1)
 ```
 
-### - `all(collection: string|tuple|table, fn: function) -> boolean`
+### - `all?(collection: string|tuple|table, fn: function) -> boolean`
 returns true if function returns true for all elements
 
 ```ruby
-all((1,2,3), fn(x) = x > 0)
-all("hello", fn(c) = c != " ")
-all({a=1, b=2}, fn(v) = v > 0)
+all?((1,2,3), fn(x) = x > 0)
+all?("hello", fn(c) = c != " ")
+all?({a=1, b=2}, fn(v) = v > 0)
 ```
 
-### - `any(collection: string|tuple|table, fn: function) -> boolean`
+### - `any?(collection: string|tuple|table, fn: function) -> boolean`
 returns true if function returns true for any element
 
 ```ruby
-any((1,2,3), fn(x) = x > 2)
-any("hello", fn(c) = c == "l")
-any({a=1, b=2}, fn(v) = v > 1)
+any?((1,2,3), fn(x) = x > 2)
+any?("hello", fn(c) = c == "l")
+any?({a=1, b=2}, fn(v) = v > 1)
 ```

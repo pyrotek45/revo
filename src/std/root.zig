@@ -20,6 +20,7 @@ pub fn register_stdlib(vm: *revo.VM) !void {
         .{ .name = "typeof", .f = define(&[_]TypeSpec{.any}, typeof_) },
         .{ .name = "tostring", .f = define(&[_]TypeSpec{.any}, tostring) },
         .{ .name = "tonumber", .f = define(&[_]TypeSpec{.any}, tonumber) },
+        .{ .name = "expect", .f = define(&[_]TypeSpec{.any}, expect) },
         .{ .name = "assert", .f = define(&[_]TypeSpec{.any}, assert_) },
         .{ .name = "set_debug", .f = define(&[_]TypeSpec{.table}, meta.set_debug) },
         .{ .name = "debug", .f = define(&[_]TypeSpec{}, debug_) },
@@ -719,10 +720,19 @@ pub fn tonumber(args: []const Data, vm: *VM) !NativeResult {
     };
 }
 
-/// asserts value is truthy
-/// errors with "assertion failed" if value is false or nil
+/// > expect(what: any) -> !what
+/// used in tests
+///
+/// return the value back if truthy, otherwise (:err, :AssertionFailed)
+pub fn expect(args: []const Data, vm: *VM) !NativeResult {
+    if (revo.isFalse(args[0])) return .Err(vm, "AssertionFailed");
+    return .Ok(vm, args[0]);
+}
+
+/// > assert(what: any) -> !:ok
+/// panics if the value is falsy
 pub fn assert_(args: []const Data, vm: *VM) !NativeResult {
-    if (revo.isFalse(args[0])) return resultTuple(vm, .err, try vm.ownDataString("assertion failed"));
+    if (revo.isFalse(args[0])) return panic_(&[1]Data{args[0]}, vm);
     return okAtom(vm);
 }
 
@@ -1184,8 +1194,8 @@ test "type predicates" {
 test "array methods" {
     try testing.top_number("{1, 2, 3}:first()", 1);
     try testing.top_number("{1, 2, 3}:last()", 3);
-    try testing.top_true("{1, 2, 3}:contains(2)");
-    try testing.top_false("{1, 2, 3}:contains(5)");
+    try testing.top_true("{1, 2, 3}:contains?(2)");
+    try testing.top_false("{1, 2, 3}:contains?(5)");
     try testing.top_number("{1, 2, 3}:index_of(2)", 1);
     try testing.top_number("{1, 2, 3}:sum()", 6);
 }

@@ -19,13 +19,13 @@ pub fn register(vm: *VM) !void {
         .{ .key = .{ .named = "replace" }, .func = root.define(&.{ .string, .string, .string }, replace_f) },
         .{ .key = .{ .named = "split" }, .func = root.define(&.{ .string, .string }, split_f) },
         .{ .key = .{ .named = "trim" }, .func = root.define(&.{.string}, trim_f) },
-        .{ .key = .{ .named = "starts_with" }, .func = root.define(&.{ .string, .string }, starts_with_f) },
-        .{ .key = .{ .named = "ends_with" }, .func = root.define(&.{ .string, .string }, ends_with_f) },
+        .{ .key = .{ .named = "starts_with?" }, .func = root.define(&.{ .string, .string }, starts_with_f) },
+        .{ .key = .{ .named = "ends_with?" }, .func = root.define(&.{ .string, .string }, ends_with_f) },
         .{ .key = .{ .named = "reverse" }, .func = root.define(&.{.string}, reverse_f) },
         .{ .key = .{ .named = "with" }, .func = root.define(&.{ .string, .number, .string }, set) },
         .{ .key = .{ .named = "table" }, .func = root.define(&.{.string}, to_table) },
         .{ .key = .{ .named = "ascii" }, .func = root.define(&.{.string}, ascii_f) },
-        .{ .key = .{ .named = "contains" }, .func = root.define(&.{ .string, .string }, contains) },
+        .{ .key = .{ .named = "contains?" }, .func = root.define(&.{ .string, .string }, contains) },
         .{ .key = .{ .named = "index_of" }, .func = root.define(&.{ .string, .string }, index_of) },
         .{ .key = .{ .core = .__index }, .func = root.define(&.{ .string, .number }, index_f) },
         .{ .key = .{ .core = .__add }, .func = root.define(&.{ .string, .string }, add_f) },
@@ -37,8 +37,8 @@ pub fn register(vm: *VM) !void {
         .{ .key = .{ .named = "reduce" }, .func = root.define(&.{ .any, .function, .any }, iter.reduce_fn) },
         .{ .key = .{ .named = "each" }, .func = root.define(&.{ .any, .function }, iter.each_fn) },
         .{ .key = .{ .named = "find" }, .func = root.define(&.{ .any, .function }, iter.find_fn) },
-        .{ .key = .{ .named = "all" }, .func = root.define(&.{ .any, .function }, iter.all_fn) },
-        .{ .key = .{ .named = "any" }, .func = root.define(&.{ .any, .function }, iter.any_fn) },
+        .{ .key = .{ .named = "all?" }, .func = root.define(&.{ .any, .function }, iter.all_fn) },
+        .{ .key = .{ .named = "any?" }, .func = root.define(&.{ .any, .function }, iter.any_fn) },
     }, try vm.ownDataString(""));
 
     try root.registerFunctions(vm, &[_]root.FuncDef{
@@ -56,13 +56,13 @@ pub fn register(vm: *VM) !void {
         .{ .name = "replace", .f = root.define(&.{ .string, .string, .string }, replace_f) },
         .{ .name = "split", .f = root.define(&.{ .string, .string }, split_f) },
         .{ .name = "trim", .f = root.define(&.{.string}, trim_f) },
-        .{ .name = "starts_with", .f = root.define(&.{ .string, .string }, starts_with_f) },
-        .{ .name = "ends_with", .f = root.define(&.{ .string, .string }, ends_with_f) },
+        .{ .name = "starts_with?", .f = root.define(&.{ .string, .string }, starts_with_f) },
+        .{ .name = "ends_with?", .f = root.define(&.{ .string, .string }, ends_with_f) },
         .{ .name = "reverse", .f = root.define(&.{.string}, reverse_f) },
         .{ .name = "with", .f = root.define(&.{ .string, .number, .string }, set) },
         .{ .name = "table", .f = root.define(&.{.string}, to_table) },
         .{ .name = "ascii", .f = root.define(&.{.string}, ascii_f) },
-        .{ .name = "contains", .f = root.define(&.{ .string, .string }, contains) },
+        .{ .name = "contains?", .f = root.define(&.{ .string, .string }, contains) },
         .{ .name = "index_of", .f = root.define(&.{ .string, .string }, index_of) },
         .{ .name = "join", .f = root.define(&.{ .table, .string }, join) },
     });
@@ -284,7 +284,7 @@ fn trim_f(args: []const Data, vm: *VM) !NativeResult {
     return .{ .ok = try vm.ownDataString(trimmed) };
 }
 
-/// > string:starts_with(prefix: string) -> bool
+/// > string:starts_with?(prefix: string) -> bool
 /// checks if string starts with prefix
 fn starts_with_f(args: []const Data, vm: *VM) !NativeResult {
     const str = vm.stringValue(args[0].string);
@@ -292,7 +292,7 @@ fn starts_with_f(args: []const Data, vm: *VM) !NativeResult {
     return .{ .ok = root.boolData(std.mem.startsWith(u8, str, prefix)) };
 }
 
-/// > string:ends_with(suffix: string) -> bool
+/// > string:ends_with?(suffix: string) -> bool
 /// checks if string ends with suffix
 fn ends_with_f(args: []const Data, vm: *VM) !NativeResult {
     const str = vm.stringValue(args[0].string);
@@ -386,7 +386,7 @@ test "string metatable" {
     try testing.top_string("\"ab\" * 3", "ababab");
 }
 
-/// > string:contains(substr: string) -> bool
+/// > string:contains?(substr: string) -> bool
 /// checks if string contains substring
 fn contains(args: []const Data, vm: *VM) !NativeResult {
     const str_id = args[0].string;
@@ -442,8 +442,8 @@ fn join(args: []const Data, vm: *VM) !NativeResult {
 }
 
 test "string methods" {
-    try testing.top_true("\"hello\":contains(\"ell\")");
-    try testing.top_false("\"hello\":contains(\"xyz\")");
+    try testing.top_true("\"hello\":contains?(\"ell\")");
+    try testing.top_false("\"hello\":contains?(\"xyz\")");
     try testing.top_number("\"hello\":index_of(\"ll\")", 2);
     try testing.top_string("string_of(97)", "a");
     try testing.top_string("string_of((72, 105))", "Hi");

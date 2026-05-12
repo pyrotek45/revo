@@ -26,7 +26,7 @@ pub fn register(vm: *VM) !void {
         .{ .key = .{ .named = "concat" }, .func = root.define(&.{ .table, .string }, concat) },
         .{ .key = .{ .named = "keys" }, .func = root.define(&.{.table}, keys) },
         .{ .key = .{ .named = "values" }, .func = root.define(&.{.table}, values) },
-        .{ .key = .{ .named = "has" }, .func = root.define(&.{ .table, .any }, has) },
+        .{ .key = .{ .named = "has?" }, .func = root.define(&.{ .table, .any }, has) },
         .{ .key = .{ .named = "copy" }, .func = root.define(&.{.table}, copy) },
         .{ .key = .{ .named = "merge" }, .func = root.define(&.{ .table, .table }, merge) },
         .{ .key = .{ .named = "sort" }, .func = root.define(&.{.table}, sort) },
@@ -36,7 +36,7 @@ pub fn register(vm: *VM) !void {
         .{ .key = .{ .named = "reverse" }, .func = root.define(&.{.table}, reverse) },
         .{ .key = .{ .named = "flatten" }, .func = root.define(&.{.table}, flatten) },
         .{ .key = .{ .named = "index_of" }, .func = root.define(&.{ .table, .any }, index_of) },
-        .{ .key = .{ .named = "contains" }, .func = root.define(&.{ .table, .any }, contains) },
+        .{ .key = .{ .named = "contains?" }, .func = root.define(&.{ .table, .any }, contains) },
         .{ .key = .{ .named = "unique" }, .func = root.define(&.{.table}, unique) },
         .{ .key = .{ .named = "sum" }, .func = root.define(&.{.table}, sum) },
         .{ .key = .{ .core = .__len }, .func = root.define(&.{.table}, len) },
@@ -49,8 +49,8 @@ pub fn register(vm: *VM) !void {
         .{ .key = .{ .named = "reduce" }, .func = root.define(&.{ .any, .function, .any }, iter.reduce_fn) },
         .{ .key = .{ .named = "each" }, .func = root.define(&.{ .any, .function }, iter.each_fn) },
         .{ .key = .{ .named = "find" }, .func = root.define(&.{ .any, .function }, iter.find_fn) },
-        .{ .key = .{ .named = "all" }, .func = root.define(&.{ .any, .function }, iter.all_fn) },
-        .{ .key = .{ .named = "any" }, .func = root.define(&.{ .any, .function }, iter.any_fn) },
+        .{ .key = .{ .named = "all?" }, .func = root.define(&.{ .any, .function }, iter.all_fn) },
+        .{ .key = .{ .named = "any?" }, .func = root.define(&.{ .any, .function }, iter.any_fn) },
     }, Data.new.table(std.math.maxInt(usize)));
 }
 
@@ -240,7 +240,7 @@ fn len(args: []const Data, vm: *VM) !NativeResult {
     return .okData(Data.new.num(table.array.items.len));
 }
 
-/// > table:has(key: any) -> bool
+/// > table:has?(key: any) -> bool
 /// checks if key exists in table
 fn has(args: []const Data, vm: *VM) !NativeResult {
     if (args.len != 2) return .errArity(args.len, 2);
@@ -566,7 +566,7 @@ fn index_of(args: []const Data, vm: *VM) !NativeResult {
     return .{ .ok = revo.core_atoms.data(.nil) };
 }
 
-/// > table:contains(value) -> bool
+/// > table:contains?(value) -> bool
 /// checks if table contains value
 fn contains(args: []const Data, vm: *VM) !NativeResult {
     const table_id = args[0].table;
@@ -634,8 +634,8 @@ fn dataEq(a: Data, b: Data) bool {
 test "table methods" {
     try testing.top_number("{1, 2, 3}:first()", 1);
     try testing.top_number("{1, 2, 3}:last()", 3);
-    try testing.top_true("{1, 2, 3}:contains(2)");
-    try testing.top_false("{1, 2, 3}:contains(5)");
+    try testing.top_true("{1, 2, 3}:contains?(2)");
+    try testing.top_false("{1, 2, 3}:contains?(5)");
     try testing.top_number("{1, 2, 3}:index_of(2)", 1);
     try testing.top_number("{1, 2, 3}:sum()", 6);
 }

@@ -16,8 +16,8 @@ pub fn register(vm: *VM) !void {
         .{ .name = "reduce", .f = root.define(&.{ .any, .function, .any }, reduce_fn) },
         .{ .name = "each", .f = root.define(&.{ .any, .function }, each_fn) },
         .{ .name = "find", .f = root.define(&.{ .any, .function }, find_fn) },
-        .{ .name = "all", .f = root.define(&.{ .any, .function }, all_fn) },
-        .{ .name = "any", .f = root.define(&.{ .any, .function }, any_fn) },
+        .{ .name = "all?", .f = root.define(&.{ .any, .function }, all_fn) },
+        .{ .name = "any?", .f = root.define(&.{ .any, .function }, any_fn) },
     });
     // tuple mt is registered by tuple.zig and it includes iteer methods
 }
@@ -358,11 +358,11 @@ pub fn find_fn(args: []const Data, vm: *VM) !NativeResult {
     return .{ .ok = revo.core_atoms.data(.missing) };
 }
 
-/// > all(collection: string|tuple|table, fn: function) -> boolean
+/// > all?(collection: string|tuple|table, fn: function) -> boolean
 /// returns true if function returns true for all elements
-///     all((1,2,3), fn(x) = x > 0)
-///     all("hello", fn(c) = c != " ")
-///     all({a=1, b=2}, fn(v) = v > 0)
+///     all?((1,2,3), fn(x) = x > 0)
+///     all?("hello", fn(c) = c != " ")
+///     all?({a=1, b=2}, fn(v) = v > 0)
 pub fn all_fn(args: []const Data, vm: *VM) !NativeResult {
     if (args.len < 2) return .errArity(args.len, 2);
 
@@ -424,11 +424,11 @@ pub fn all_fn(args: []const Data, vm: *VM) !NativeResult {
     return .{ .ok = Data.new.boolean(true) };
 }
 
-/// > any(collection: string|tuple|table, fn: function) -> boolean
+/// > any?(collection: string|tuple|table, fn: function) -> boolean
 /// returns true if function returns true for any element
-///     any((1,2,3), fn(x) = x > 2)
-///     any("hello", fn(c) = c == "l")
-///     any({a=1, b=2}, fn(v) = v > 1)
+///     any?((1,2,3), fn(x) = x > 2)
+///     any?("hello", fn(c) = c == "l")
+///     any?({a=1, b=2}, fn(v) = v > 1)
 pub fn any_fn(args: []const Data, vm: *VM) !NativeResult {
     if (args.len < 2) return .errArity(args.len, 2);
 
