@@ -1047,7 +1047,14 @@ fn callRegister(self: *VM, instr: Instruction) EvalError!void {
             const args = self.currentFiber().slots.items[args_start..args_end];
 
             if ((!f.variadic and argc != f.arity) or (f.variadic and argc < f.arity)) {
-                try self.setRuntimeMessageFmt("function expected {d} args, got {d}", .{ f.arity, argc });
+                var params = try std.ArrayList(u8).initCapacity(self.runtime.alloc, 8);
+                for (f.param_types, 0..) |t, i| {
+                    if (i > 0) try params.appendSlice(self.runtime.alloc, ", ");
+                    try params.appendSlice(self.runtime.alloc, @tagName(t));
+                }
+                const params_str = try params.toOwnedSlice(self.runtime.alloc);
+                defer self.runtime.alloc.free(params_str);
+                try self.setRuntimeMessageFmt("function expected {d} args({s}), got {d}", .{ f.arity, params_str, argc });
                 return error.WrongArity;
             }
 
@@ -1070,9 +1077,10 @@ fn callRegister(self: *VM, instr: Instruction) EvalError!void {
                 .err => |err| {
                     switch (err) {
                         .wrong_arity => |info| {
+                            const name = func.name();
                             try self.setRuntimeMessageFmt(
-                                "function expected {d} args, got {d}",
-                                .{ info.expected, info.got },
+                                "function {s} expected {d} args, got {d}",
+                                .{ name, info.expected, info.got },
                             );
                             return error.WrongArity;
                         },
