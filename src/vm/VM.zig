@@ -364,7 +364,7 @@ fn runReadyFibers(self: *VM) !?EvalFailure {
     while (self.sched.dequeueRunnable()) |fid| {
         self.sched.current_fiber = fid;
         if (self.currentFiber().state == .dead) continue;
-        self.currentFiber().state = .running;
+        self.sched.setFiberState(fid, .running);
         self.currentFiber().running = true;
 
         // get the current fiber each iteration because spawn can grow the
@@ -709,7 +709,7 @@ pub fn runReport(self: *VM) !EvalResult {
             .base = 0,
         });
     }
-    self.mainFiber().state = .ready;
+    self.sched.setFiberState(0, .ready);
     try self.sched.enqueueRunnable(self.runtime.alloc, 0);
 
     while (true) {
@@ -719,9 +719,7 @@ pub fn runReport(self: *VM) !EvalResult {
         try self.sched.wakeDueSleepers(self.runtime.alloc, self.schedNowMonotonicNs());
 
         const has_sleepers = self.sched.sleepers.items.len > 0;
-        const has_waiting = for (self.sched.fibers.items) |fiber| {
-            if (fiber.state == .waiting) break true;
-        } else false;
+        const has_waiting = self.sched.waiting_cnt > 0;
 
         if (!has_sleepers and !has_waiting) break;
 
@@ -1647,13 +1645,13 @@ fn evalRegister(self: *VM, instr: Instruction) EvalError!void {
             } else {
                 try target.waiters.append(self.runtime.alloc, self.sched.current_fiber);
                 self.currentFiber().parked_result_slot = try self.absoluteRegisterIndex(instr.a);
-                self.currentFiber().state = .waiting;
+                self.sched.setFiberState(self.sched.current_fiber, .waiting);
                 self.currentFiber().wait = .{ .join = target_id };
                 self.currentFiber().running = false;
             }
         },
         .yield => {
-            self.currentFiber().state = .ready;
+            self.sched.setFiberState(self.sched.current_fiber, .ready);
             self.currentFiber().running = false;
         },
         .halt => {
@@ -1661,7 +1659,7 @@ fn evalRegister(self: *VM, instr: Instruction) EvalError!void {
             self.currentFiber().slots.items.len = 0;
             try self.push(result);
             self.currentFiber().running = false;
-            self.currentFiber().state = .dead;
+            self.sched.setFiberState(self.sched.current_fiber, .dead);
         },
         .range_init => {
             const start = try self.readRegister(instr.b);
