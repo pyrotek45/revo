@@ -289,7 +289,7 @@ fn parseArgs(init: std.process.Init, args: []const [:0]const u8) !Config {
         }
         i += 1;
     }
-    config.argv = argv.items;
+    config.argv = try argv.toOwnedSlice(init.arena.allocator());
 
     return config;
 }
