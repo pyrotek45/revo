@@ -88,7 +88,6 @@ fn runMain(init: std.process.Init) !void {
     const config = try parseArgs(init, args);
 
     if (config.inline_code) |code| {
-        // try runInlineCode(init, init.gpa, code, config.test_mode, config.echo_last);
         try runInlineCode(init, init.gpa, code, config);
         if (!config.interactive and config.script_path == null) return;
     }
@@ -102,7 +101,7 @@ fn runMain(init: std.process.Init) !void {
         if (std.mem.endsWith(u8, path, ".rvo")) {
             switch (config.mode) {
                 .run => try runBytecode(init, init.gpa, path, source, config),
-                .bench => try benchBytecode(init, init.gpa, path, source, config), // .bench_iters, config.echo_last),
+                .bench => try benchBytecode(init, init.gpa, path, source, config),
                 .disassemble => {
                     var vm = try initVM(init, init.gpa, config.argv);
                     defer vm.deinit();
@@ -124,8 +123,8 @@ fn runMain(init: std.process.Init) !void {
         } else {
             switch (config.mode) {
                 .run => try runSource(init, init.gpa, path, source, config),
-                .bench => try benchSource(init, init.gpa, path, source, config), // .bench_iters, config.echo_last, config.test_mode),
-                .compile => try compileToBytecode(init, init.gpa, arena, path, source, config), // .output_path, config.test_mode),
+                .bench => try benchSource(init, init.gpa, path, source, config),
+                .compile => try compileToBytecode(init, init.gpa, arena, path, source, config),
                 .disassemble => {
                     var vm = try initVM(init, init.gpa, config.argv);
                     defer vm.deinit();
@@ -379,7 +378,7 @@ fn benchArtifact(
     printBenchStats(vm, times.items);
 }
 
-fn benchSource(init: std.process.Init, gpa: Allocator, path: []const u8, source: []const u8, config: Config) !void { // iters: u32, echo_last: bool, test_mode: bool) !void {
+fn benchSource(init: std.process.Init, gpa: Allocator, path: []const u8, source: []const u8, config: Config) !void {
     var vm = try initVM(init, gpa, config.argv);
     defer vm.deinit();
 
@@ -421,7 +420,6 @@ fn benchBytecode(init: std.process.Init, gpa: Allocator, path: []const u8, bytec
 }
 
 fn compileToBytecode(init: std.process.Init, gpa: Allocator, arena: Allocator, path: []const u8, source: []const u8, config: Config) !void {
-    // , opt_output_path: ?[]const u8, test_mode: bool) !void {
     var vm = try initVM(init, gpa, config.argv);
     defer vm.deinit();
 
