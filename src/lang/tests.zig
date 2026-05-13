@@ -688,6 +688,37 @@ test "double pipe" {
     , 42);
 }
 
+test "|>? maps ok payloads" {
+    try t.top_number(
+        \\ (:ok, 20) |>? fn(x) x + 22
+    , 42);
+}
+
+test "|>? passes through err tuples" {
+    try t.top_string(
+        \\ tostring((:err, :bad) |>? fn(x) x + 1)
+    , "(:err, :bad)");
+}
+
+test "|>~ maps only err tuples" {
+    try t.top_number(
+        \\ (:err, :bad) |>~ fn(v) if err?(v) 42 else 0
+    , 42);
+    try t.top_string(
+        \\ tostring((:ok, 5) |>~ fn(v) 0)
+    , "(:ok, 5)");
+}
+
+test "result pipe chain does not require parentheses around |>? stage" {
+    try t.top_number(
+        \\ const mixed =
+        \\   tonumber("no")
+        \\   |>? fn(n) n + 1
+        \\   |>~ fn(v) 0
+        \\ mixed
+    , 0);
+}
+
 // test "side prefix" {
 //     // mean must be a side-effect-only procedure. it is fully ignored
 //     try t.top_number(

@@ -1764,6 +1764,20 @@ fn evalRegister(self: *VM, instr: Instruction) EvalError!void {
                 self.currentFiber().pc = instr.bx;
             }
         },
+        .jump_if_err => {
+            const val = try self.readRegister(instr.a);
+            const is_err = if (val == .tuple) blk: {
+                const tuple = try self.tuples.get(val.tuple);
+                if (tuple.items.len > 0) {
+                    const tag = tuple.items[0];
+                    break :blk tag == .atom and tag.atom == revo.core_atoms.atom_id(.err);
+                }
+                break :blk false;
+            } else false;
+            if (is_err) {
+                self.currentFiber().pc = instr.bx;
+            }
+        },
     }
 }
 

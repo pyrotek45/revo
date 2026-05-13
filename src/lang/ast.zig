@@ -199,6 +199,8 @@ pub const Expr = union(enum) {
     table: []TableEntry,
     struct_def: struct { name: []const u8, items: []StructItem },
     pipe_expr: struct { left: *Node, right: *Node },
+    pipe_ok_expr: struct { left: *Node, right: *Node },
+    pipe_err_expr: struct { left: *Node, right: *Node },
     proc_macro: struct { name: []const u8, param: FnParam, body: *Node },
     try_expr: *Node, // expr?
     orelse_expr: struct { left: *Node, right: *Node }, // expr orelse 42
@@ -284,6 +286,22 @@ pub const Node = struct {
             },
             .pipe_expr => |pipe| {
                 try writer.writeAll("(|>");
+                try sep(writer, depth, 1);
+                try pipe.left.printAt(writer, child(depth));
+                try sep(writer, depth, 1);
+                try pipe.right.printAt(writer, child(depth));
+                try close(writer, depth);
+            },
+            .pipe_ok_expr => |pipe| {
+                try writer.writeAll("(|>?");
+                try sep(writer, depth, 1);
+                try pipe.left.printAt(writer, child(depth));
+                try sep(writer, depth, 1);
+                try pipe.right.printAt(writer, child(depth));
+                try close(writer, depth);
+            },
+            .pipe_err_expr => |pipe| {
+                try writer.writeAll("(|>~");
                 try sep(writer, depth, 1);
                 try pipe.left.printAt(writer, child(depth));
                 try sep(writer, depth, 1);

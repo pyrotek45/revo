@@ -22,6 +22,7 @@ pub fn register_stdlib(vm: *revo.VM) !void {
         .{ .name = "tonumber", .f = define(&[_]TypeSpec{.any}, tonumber) },
         .{ .name = "expect", .f = define(&[_]TypeSpec{.any}, expect) },
         .{ .name = "assert", .f = define(&[_]TypeSpec{.any}, assert_) },
+        .{ .name = "assert_eq", .f = define(&[_]TypeSpec{ .any, .any }, assert_eq) },
         .{ .name = "set_debug", .f = define(&[_]TypeSpec{.table}, meta.set_debug) },
         .{ .name = "debug", .f = define(&[_]TypeSpec{}, debug_) },
         .{ .name = "@range", .f = define(&[_]TypeSpec{ .number, .number, .number }, range_) },
@@ -704,7 +705,16 @@ pub fn expect(args: []const Data, vm: *VM) !NativeResult {
 /// panics if the value is falsy
 pub fn assert_(args: []const Data, vm: *VM) !NativeResult {
     if (revo.isFalse(args[0])) return panic_(&[1]Data{args[0]}, vm);
-    return okAtom(vm);
+    return .okData(args[0]);
+}
+
+/// > assert(what: any) -> !:ok
+/// panics if the value is falsy
+pub fn assert_eq(args: []const Data, vm: *VM) !NativeResult {
+    if (vm.compare(args[0], args[1]) != .eq) {
+        return .other("neq");
+    }
+    return .okData(args[0]);
 }
 
 /// > print(args: any...) -> atom

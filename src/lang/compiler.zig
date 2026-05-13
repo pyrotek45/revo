@@ -386,6 +386,8 @@ pub const Compiler = struct {
             // core sugar
             //
             .pipe_expr => |pipe| try self.compilePipe(pipe.left, pipe.right),
+            .pipe_ok_expr => |pipe| try self.compilePipeOk(pipe.left, pipe.right),
+            .pipe_err_expr => |pipe| try self.compilePipeErr(pipe.left, pipe.right),
             .loop_expr => |v| try self.compileLoop(v.body),
             .for_loop => |v| try self.compileFor(v.params, v.body, v.iter),
             .while_loop => |v| try self.compileWhile(v.predicate, v.body),
@@ -631,6 +633,36 @@ pub const Compiler = struct {
             },
             else => return self.fail(.UnsupportedSyntax, right, "invalid pipe target"),
         }
+    }
+
+    fn compilePipeOk(self: *Compiler, left: *const Node, right: *const Node) InternalLowerError!void {
+        try self.compile(left, true);
+        try self.emit(.unwrap_result, 1); // unwrap (:ok, x), leave (:err, e) as-is
+        try self.duplicateRegister();
+        const err_jump = try self.emitJump(.jump_if_err);
+        try self.compilePipeAtTop(right);
+        self.patchJump(err_jump);
+    }
+
+    fn compilePipeErr(self: *Compiler, left: *const Node, right: *const Node) InternalLowerError!void {
+        try self.compile(left, true);
+        try self.duplicateRegister();
+        const err_jump = try self.emitJump(.jump_if_err);
+        const end_jump = try self.emitJump(.jump);
+        self.patchJump(err_jump);
+        try self.compilePipeAtTop(right);
+        self.patchJump(end_jump);
+    }
+
+    fn compilePipeAtTop(self: *Compiler, right: *const Node) InternalLowerError!void {
+        const tmp_name = try self.nextTemp("__pipe_tmp");
+        const tmp_atom = try self.vm.internAtom(tmp_name);
+        try self.emit(.store_global, tmp_atom);
+        const left_node = Node{
+            .span = self.active_span,
+            .expr = .{ .ident = tmp_name },
+        };
+        try self.compilePipe(&left_node, right);
     }
 
     // compile the comp as a complete program in isolation
@@ -2316,6 +2348,12 @@ pub const Compiler = struct {
                 // if tos is not nil and not (:err, ...), jump
                 if (depth == 0) return error.InvalidBytecode;
                 instr = .{ .op = .jump_if_not_nil_and_not_err, .a = try reg(depth - 1), .bx = operand };
+                depth -= 1;
+            },
+            .jump_if_err => {
+                // if tos is (:err, ...), jump
+                if (depth == 0) return error.InvalidBytecode;
+                instr = .{ .op = .jump_if_err, .a = try reg(depth - 1), .bx = operand };
                 depth -= 1;
             },
         }

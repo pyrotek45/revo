@@ -80,6 +80,8 @@ pub const TokenType = enum {
     comma,
     pipe,
     pipe_forward,
+    pipe_forward_ok,
+    pipe_forward_err,
     huh,
     lparen,
     rparen,
@@ -261,7 +263,12 @@ const Lexer = struct {
 
         return switch (c) {
             '|' => if (self.matchChar('>'))
-                self.makeToken(.pipe_forward, start, self.pos, line, column)
+                if (self.matchChar('?'))
+                    self.makeToken(.pipe_forward_ok, start, self.pos, line, column)
+                else if (self.matchChar('~'))
+                    self.makeToken(.pipe_forward_err, start, self.pos, line, column)
+                else
+                    self.makeToken(.pipe_forward, start, self.pos, line, column)
             else
                 self.makeToken(.pipe, start, self.pos, line, column),
             '+' => if (self.matchChar('='))
@@ -867,6 +874,19 @@ test "lexes macro literals and pipe-forward" {
         .ident,
         .kw_end,
         .eof,
+    });
+}
+
+test "lexes result pipe operators" {
+    try t.expectTokens(
+        \\ x |>? f |>~ g
+    , &.{
+        .{ .t = .ident, .v = "x" },
+        .{ .t = .pipe_forward_ok, .v = "|>?" },
+        .{ .t = .ident, .v = "f" },
+        .{ .t = .pipe_forward_err, .v = "|>~" },
+        .{ .t = .ident, .v = "g" },
+        .{ .t = .eof, .v = "" },
     });
 }
 

@@ -1,0 +1,48 @@
+##
+# revo's pipes
+# 
+# put the left-hand value in as the first argument to the function on the right
+# 
+# |>? pipes only continue if the value is anything but (:err, e) and just short-circuit otherwise
+# |>~ pipes run only on errors
+#
+# this makes them similar to monads
+##
+let a = :nil
+# just pipe
+a = 21
+  |> fn(x) x * 2
+
+assert_eq(a, 42)
+
+# ok pipe
+a = (:ok, 20)
+  |>? fn(x) x + 22
+
+assert_eq(a, 42)
+
+a = (:err, :BadInput)
+    |>? fn(x) x + 22
+
+assert_eq(a, (:err, :BadInput))
+
+# err pipe
+a = (:err, :DiskFull)
+    |>~ fn(v) fmt("handled %v", v)
+assert_eq(a, "handled (:err, :DiskFull)")
+
+a = (:ok, 5)
+    |>~ fn(v) "never-runs"
+assert_eq(a, (:ok, 5)) # (:ok, 5)
+
+# mixed
+a =
+  tonumber("no")
+  |>? fn(n) n + 1
+  |>~ fn(v) 0
+  |> assert_eq(0)
+
+tonumber("42")
+  |>? fn(n) n + 1
+  |>~ fn(v) 0
+  |> assert_eq(43)

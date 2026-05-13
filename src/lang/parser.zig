@@ -249,15 +249,20 @@ const Parser = struct {
                 continue;
             }
 
-            if (op == .pipe_forward) {
+            if (op == .pipe_forward or op == .pipe_forward_ok or op == .pipe_forward_err) {
                 const bp: u8 = 15;
                 if (bp < min_bp) break;
                 _ = self.advance();
-                const right = try self.parseExpression(bp + 1);
-                left = try self.allocExpr(Span.merge(left.span, right.span), .{ .pipe_expr = .{
-                    .left = left,
-                    .right = right,
-                } });
+                const right = if (self.check(.kw_fn))
+                    try self.parseFnWithBodyMin(self.advance(), bp + 1)
+                else
+                    try self.parseExpression(bp + 1);
+                left = try self.allocExpr(Span.merge(left.span, right.span), switch (op) {
+                    .pipe_forward => .{ .pipe_expr = .{ .left = left, .right = right } },
+                    .pipe_forward_ok => .{ .pipe_ok_expr = .{ .left = left, .right = right } },
+                    .pipe_forward_err => .{ .pipe_err_expr = .{ .left = left, .right = right } },
+                    else => unreachable,
+                });
                 continue;
             }
 
@@ -338,6 +343,10 @@ const Parser = struct {
     /// fn name(params) body          - const name = fn(params) body
     /// fn obj:name(params) body      - const obj.name = fn(self, params) body
     fn parseFn(self: *Parser, start: Token) anyerror!*Node {
+        return self.parseFnWithBodyMin(start, 0);
+    }
+
+    fn parseFnWithBodyMin(self: *Parser, start: Token, body_min_bp: u8) anyerror!*Node {
         // check if this is a named function definition
         if (self.check(.ident)) {
             const first_ident = self.advance();
@@ -351,7 +360,7 @@ const Parser = struct {
                 _ = try self.expect(.lparen);
                 const params = try self.parseParamList(.rparen);
                 _ = try self.expect(.rparen);
-                const body = try self.parseExpression(0);
+                const body = try self.parseExpression(body_min_bp);
 
                 // insert self as first parameter
                 var new_params = try self.alloc.alloc(ast.FnParam, params.len + 1);
@@ -388,7 +397,7 @@ const Parser = struct {
                 _ = try self.expect(.lparen);
                 const params = try self.parseParamList(.rparen);
                 _ = try self.expect(.rparen);
-                const body = try self.parseExpression(0);
+                const body = try self.parseExpression(body_min_bp);
 
                 // create fn(params) body (no self)
                 const fn_node = try self.allocExpr(
@@ -419,7 +428,7 @@ const Parser = struct {
                 _ = try self.expect(.lparen);
                 const params = try self.parseParamList(.rparen);
                 _ = try self.expect(.rparen);
-                const body = try self.parseExpression(0);
+                const body = try self.parseExpression(body_min_bp);
 
                 const fn_node = try self.allocExpr(
                     Span.merge(start.span(), body.span),
@@ -442,7 +451,7 @@ const Parser = struct {
         _ = try self.expect(.lparen);
         const params = try self.parseParamList(.rparen);
         _ = try self.expect(.rparen);
-        const body = try self.parseExpression(0);
+        const body = try self.parseExpression(body_min_bp);
         return self.allocExpr(Span.merge(start.span(), body.span), .{ .fn_expr = .{ .params = params, .body = body } });
     }
 
@@ -1102,7 +1111,7 @@ const Parser = struct {
 
     fn canContinueExpression(self: *Parser, left: *const Node) bool {
         const t = self.peek().type;
-        if (t == .dot or t == .lbracket or t == .assign or t == .dotdot or t == .pipe_forward) return true;
+        if (t == .dot or t == .lbracket or t == .assign or t == .dotdot or t == .pipe_forward or t == .pipe_forward_ok or t == .pipe_forward_err) return true;
         if (t == .plus_assign or t == .minus_assign or t == .star_assign or t == .slash_assign or t == .percent_assign) return true;
         if (logicalBindingPower(t) != null) return true;
         if (infixBindingPower(t) != null) return true;
@@ -1243,6 +1252,8 @@ const expr_start_tokens = makeTokenSet(&.{
     .minus,
     .kw_not,
     .pipe_forward,
+    .pipe_forward_ok,
+    .pipe_forward_err,
     .lparen,
     .kw_fn,
     .kw_if,

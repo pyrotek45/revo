@@ -249,6 +249,14 @@ fn walkExpr(
             .left = try ctx.walk(allocator, v.left, ctx),
             .right = try ctx.walk(allocator, v.right, ctx),
         } }),
+        .pipe_ok_expr => |v| alloc(allocator, expr.span, .{ .pipe_ok_expr = .{
+            .left = try ctx.walk(allocator, v.left, ctx),
+            .right = try ctx.walk(allocator, v.right, ctx),
+        } }),
+        .pipe_err_expr => |v| alloc(allocator, expr.span, .{ .pipe_err_expr = .{
+            .left = try ctx.walk(allocator, v.left, ctx),
+            .right = try ctx.walk(allocator, v.right, ctx),
+        } }),
         .break_expr => |v| alloc(allocator, expr.span, .{
             .break_expr = if (v) |inner| try ctx.walk(allocator, inner, ctx) else null,
         }),
