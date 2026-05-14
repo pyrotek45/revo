@@ -630,21 +630,21 @@ test "result and error conventions work with match" {
     try t.top_true(":true");
 }
 
-test "@try panics on err result" {
+test "unwrap panics on err result" {
     try t.expectRuntimeFailureWithMessage(
-        \\ @try((:err, :Unlucky))
+        \\ unwrap((:err, :Unlucky))
     , .Panic, ":Unlucky");
 }
 
-test "@try works on tuples immediately" {
+test "unwrap works on tuples immediately" {
     try t.expectRuntimeFailureWithMessage(
         \\ (:err, :Unlucky):unwrap()
     , .Panic, ":Unlucky");
 }
 
-test "@try panics on bullshit" {
+test "unwrap panics on bullshit" {
     try t.expectRuntimeError(
-        \\ @try "yo"
+        \\ unwrap "yo"
     , .TypeError);
 }
 

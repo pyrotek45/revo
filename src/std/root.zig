@@ -29,7 +29,7 @@ pub fn register_stdlib(vm: *revo.VM) !void {
         .{ .name = "@range", .f = define(&[_]TypeSpec{ .number, .number, .number }, range_) },
         .{ .name = "@range_from", .f = define(&[_]TypeSpec{ .number, .number }, range_from_) },
         .{ .name = "@struct_new", .f = define(&[_]TypeSpec{ .table, .table }, struct_new) },
-        .{ .name = "@try", .f = define(&[_]TypeSpec{.tuple}, try_) },
+        .{ .name = "unwrap", .f = define(&[_]TypeSpec{.tuple}, try_) },
         .{ .name = "@dotest", .f = define(&[_]TypeSpec{ .string, .function }, dotest) },
         .{ .name = "@dosuite", .f = define(&[_]TypeSpec{ .string, .function }, dosuite) },
         .{ .name = "@eval", .f = define(&[_]TypeSpec{.string}, @import("stupid.zig").eval) },
@@ -560,7 +560,7 @@ fn range_from_(args: []const Data, vm: *VM) !NativeResult {
     return .okData(Data.new.tuple(id));
 }
 
-/// > @try(result: tuple) -> any
+/// > unwrap(result: tuple) -> any
 /// unwraps result tuple, panics if not :ok
 pub fn try_(args: []const Data, vm: *VM) !NativeResult {
     const t_id = switch (args[0]) {

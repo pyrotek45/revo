@@ -54,7 +54,7 @@ pub fn register(vm: *VM) !void {
     }, Data.new.table(std.math.maxInt(usize)));
 }
 
-/// > @try(result: tuple) -> any
+/// > unwrap(result: tuple) -> any
 /// unwraps result tuple, panics if not :ok
 pub fn @"try"(args: []const Data, vm: *VM) !NativeResult {
     const table_id = args[0].table;

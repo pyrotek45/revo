@@ -11,8 +11,8 @@ fn boom() do
 	res() |> try
 	res() orelse "<not found>"
 
-	@try(res())
-	(:err, :Unlucky) |> @try
+	unwrap(res())
+	(:err, :Unlucky) |> unwrap
 
 	tonumber("a")?
 end
@@ -33,7 +33,7 @@ const contents = fs.open("readme.md")?:read() orelse "default content"
 
 "readme.md"
 	|> fs.open
-	|> @try
+	|> unwrap
 	|> file.read
 	|> string.split("\n")
 	|> len
