@@ -1,8 +1,7 @@
 # revo
 [homepage & docs](https://gills.pages.dev/revo)
+| [github](https://github.com/if-not-nil/revo)
 | [learn](https://gills.pages.dev/revo/basics)
-| [codeberg](https://codeberg.org/lung/revo)
-| [github (mirror)](https://github.com/if-not-nil/revo)
 
 **revo** is an expressive, dynamically-typed language that is made\
 to balance semantic freedom and readability
@@ -18,6 +17,7 @@ see [homepage](https://gills.pages.dev/revo) and [docs/basics](https://gills.pag
 you will need [zig `0.16.0`](https://ziglang.org/download)
 
 ```bash
+git clone https://github.com/if-not-nil/revo && cd revo
 zig build -Doptimize=ReleaseFast
 cp ./zig-out/bin/revo ~/.local/bin/revo
 revo -h
