@@ -21,8 +21,8 @@ const (x, y) = point
 
 # pattern matching + result types
 fn safe_div(a, b)
-    if b == 0 err(:DivByZero)
-    else ok(a / b)
+    if b == 0 (:err, :DivByZero)
+    else (:ok, a / b)
 
 match safe_div(10, 2)
     | (:ok, v)  print(v)     # 5
