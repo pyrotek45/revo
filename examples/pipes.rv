@@ -9,8 +9,16 @@ fn bind(trolley, track) match trolley
   | (:ok, ok) track(ok)
   | (:err, e) (:err, e)
 
-let a = {inner = 21, mutate = fn(self) do self.inner *= 2 self end}
-# just pipe
+fn or_else(trolley, track) match trolley
+  | (:err, e) track(e)
+  | (:ok, ok) (:ok, ok)
+
+fn or_else_msg(trolley, track) match trolley
+  | (:err, e, msg) track(e, msg)
+  | x x
+
+let a = {inner = 21, mutate = fn(self) self.inner *= 2}
+# explicit pipe
 a |> fn(c) c:mutate()
   |> fn(c) assert_eq(c.inner, 42)
   |> fn(c) do
@@ -19,3 +27,8 @@ a |> fn(c) c:mutate()
   end
   |> bind(fn(a) a * 2)
   |> inspect
+
+# placeholder pipe - using _ in method call
+print("Testing placeholder _:mutate():")
+a |> _:mutate()
+  |> print

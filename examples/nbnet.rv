@@ -4,11 +4,8 @@
 #   x for exit
 #   ping for "pong {number of pings}"
 #   anything else is repeated back at the user
-const server = net.listen(6767)?
-print!("serving on localhost:%d...", server.port)
 
-fn serve(peer) do
-  let counter = 0
+fn serve(peer, counter) do
   print!("new peer %v", peer)
 
   while :true do
@@ -48,10 +45,19 @@ fn serve(peer) do
   end
 end
 
-while :true do
-  # accept the next connection; if none is ready, this fiber parks until the
-  # runtime sees a connection on the listening socket.
-  let conn = server:accept()?
-  # the only thing you have to do to make it async is to add `spawn` here! 
-  spawn serve(conn)
+fn srv(port) do
+  const server = net.listen(port)?
+  print!("serving on localhost:%d...", server.port)
+
+  while :true do
+    # accept the next connection; if none is ready, this fiber parks until the
+    # runtime sees a connection on the listening socket.
+    let conn = server:accept()?
+    # the only thing you have to do to make it async is to add `spawn` here! 
+    spawn serve(conn, port - 1)
+  end
 end
+
+spawn srv(6767)
+spawn srv(6768)
+spawn srv(6769)

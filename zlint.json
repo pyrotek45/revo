@@ -1,0 +1,6 @@
+{
+  "rules": {
+    "unsafe-undefined": "error",
+    "homeless-try": "warn"
+  }
+}
