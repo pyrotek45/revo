@@ -619,33 +619,21 @@ pub const Compiler = struct {
 
     const UnderscoreCheckVisitor = struct {
         found: bool = false,
-        depth: usize = 0,
 
         pub fn visit(self: *UnderscoreCheckVisitor, node: *const Node) void {
-            // print("visit depth={d} expr={s}\n", .{ self.depth, @tagName(node.expr) });
-
             if (self.found) return;
-
             switch (node.expr) {
                 .ident => |name| {
-                    if (std.mem.eql(u8, name, "_")) {
-                        self.found = true;
-                        return;
-                    }
+                    if (std.mem.eql(u8, name, "_")) self.found = true;
                 },
-                else => {
-                    ast.walkAST(UnderscoreCheckVisitor, self, node);
-                    // print("  else case, calling walkAST\n", .{});
-                },
+                else => ast.walkAST(UnderscoreCheckVisitor, self, node),
             }
         }
     };
 
     fn hasUnderscore(node: *const Node) bool {
-        // print("hasunderscore start\n", .{});
         var visitor = UnderscoreCheckVisitor{};
         ast.walkAST(UnderscoreCheckVisitor, &visitor, node);
-        // print("hasunderscore end found={}\n", .{visitor.found});
         return visitor.found;
     }
 
@@ -653,6 +641,7 @@ pub const Compiler = struct {
         switch (right.expr) {
             .ident => {
                 try self.compile(right, true);
+                try self.duplicateRegister();
                 try self.compile(left, true);
                 try self.emit(.call, 1);
             },
@@ -661,18 +650,15 @@ pub const Compiler = struct {
             },
             .fn_expr => |fn_expr| {
                 try self.compileFn(fn_expr.params, fn_expr.body, "<fn>", null);
+                try self.duplicateRegister();
                 try self.compile(left, true);
                 try self.emit(.call, 1);
             },
             .call => {
                 const call = &right.expr.call;
-                // const has_underscore = hasUnderscore(right);
-                const has_underscore = comptime false;
-                // print("has_underscore={}, about to compile right\n", .{has_underscore});
-
+                const has_underscore = hasUnderscore(right);
                 if (has_underscore) {
                     try self.pushScope();
-
                     errdefer self.popScope();
                     const slot = try self.declareLocal("_", false);
                     try self.compile(left, true);
@@ -682,15 +668,33 @@ pub const Compiler = struct {
                     try self.compile(right, true);
                     self.popScope();
                 } else {
-                    // no underscore so insert left as first argument
-                    try self.compile(call.callee, true);
-                    try self.compile(left, true);
-                    for (call.args) |arg| try self.compile(arg, true);
-                    try self.emit(.call, @intCast(call.args.len + 1));
+                    switch (call.callee.expr) {
+                        .field => |field| {
+                            try self.compile(field.object, true);
+                            try self.emitConst(Data{ .atom = try self.vm.internAtom(field.name) });
+                            try self.compile(left, true);
+                            for (call.args) |arg| try self.compile(arg, true);
+                            const argc = (call.args.len + 1) | (@as(usize, @intFromBool(call.implicit_self)) << 15);
+                            try self.emit(.call_field, @intCast(argc));
+                        },
+                        .index => |index| {
+                            try self.compile(index.object, true);
+                            try self.compile(index.key, true);
+                            try self.compile(left, true);
+                            for (call.args) |arg| try self.compile(arg, true);
+                            const argc = (call.args.len + 1) | (@as(usize, @intFromBool(call.implicit_self)) << 15);
+                            try self.emit(.call_field, @intCast(argc));
+                        },
+                        else => {
+                            try self.compile(call.callee, true);
+                            try self.compile(left, true);
+                            for (call.args) |arg| try self.compile(arg, true);
+                            try self.emit(.call, @intCast(call.args.len + 1));
+                        },
+                    }
                 }
             },
             else => {
-                // other expressions is bind left to _
                 try self.pushScope();
                 errdefer self.popScope();
                 const slot = try self.declareLocal("_", false);

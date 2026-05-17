@@ -227,6 +227,12 @@ pub fn fmt(args: []const Data, vm: *VM) !NativeResult {
                     arg_idx += 1;
                     i += 2;
                 },
+                's' => {
+                    if (arg_idx >= args.len) return .errArity(args.len, arg_idx + 1);
+                    try append_data(&result.writer, args[arg_idx], vm, .display);
+                    arg_idx += 1;
+                    i += 2;
+                },
                 'd' => {
                     if (arg_idx >= args.len) return .errArity(args.len, arg_idx + 1);
                     const v = switch (args[arg_idx]) {
@@ -245,7 +251,11 @@ pub fn fmt(args: []const Data, vm: *VM) !NativeResult {
                     arg_idx += 1;
                     i += 2;
                 },
-                else => {},
+                else => {
+                    try result.writer.writeByte('%');
+                    try result.writer.writeByte(format[i + 1]);
+                    i += 2;
+                },
             }
         } else {
             try result.writer.writeByte(format[i]);

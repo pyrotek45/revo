@@ -710,7 +710,6 @@ test "pipe underscore expr depth > 1" {
 }
 
 test "pipe underscore call depth > 1" {
-    if (true) return error.Todo;
     try t.top_string(
         \\ "asdf" |> fmt("aaa%s", _:upper())
     , "aaaASDF");

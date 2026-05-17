@@ -756,7 +756,6 @@ pub fn runReport(self: *VM) !EvalResult {
             try self.sched.wakeDueSleepers(self.runtime.alloc, self.schedNowMonotonicNs());
             continue;
         }
-
         if (has_sleepers) {
             self.schedSleepUntilNextTimer();
             try self.sched.wakeDueSleepers(self.runtime.alloc, self.schedNowMonotonicNs());
