@@ -114,7 +114,6 @@ pub const Fiber = struct {
 };
 
 const Scheduler = @import("scheduler.zig");
-const ChannelState = Scheduler.ChannelState;
 
 // concurrency
 sched: Scheduler,
@@ -1395,7 +1394,7 @@ fn evalRegister(self: *VM, instr: Instruction) EvalError!void {
             // String * number or number * string: repeat string
             if (lhs == .string and rnum != null) {
                 const str = self.stringValue(lhs.string);
-                const count = @as(usize, @intCast(std.math.clamp(@as(i64, @intFromFloat(rnum.?)), 0, std.math.maxInt(i32))));
+                const count: usize = @intCast(std.math.clamp(@as(i64, @intFromFloat(rnum.?)), 0, std.math.maxInt(i32)));
                 const cap = std.math.mul(usize, str.len, count) catch return error.OutOfMemory;
                 var buf = try std.ArrayList(u8).initCapacity(self.runtime.alloc, cap);
                 errdefer buf.deinit(self.runtime.alloc);
@@ -1408,7 +1407,7 @@ fn evalRegister(self: *VM, instr: Instruction) EvalError!void {
             }
             if (rhs == .string and lnum != null) {
                 const str = self.stringValue(rhs.string);
-                const count = @as(usize, @intCast(std.math.clamp(@as(i64, @intFromFloat(lnum.?)), 0, std.math.maxInt(i32))));
+                const count: usize = @intCast(std.math.clamp(@as(i64, @intFromFloat(lnum.?)), 0, std.math.maxInt(i32)));
                 const cap = std.math.mul(usize, str.len, count) catch return error.OutOfMemory;
                 var buf = try std.ArrayList(u8).initCapacity(self.runtime.alloc, cap);
                 errdefer buf.deinit(self.runtime.alloc);
@@ -1572,7 +1571,7 @@ fn evalRegister(self: *VM, instr: Instruction) EvalError!void {
 
             // happy path: small non-negative number index
             if (idx_val == .number and idx_val.number >= 0 and @floor(idx_val.number) == idx_val.number) {
-                const idx = @as(usize, @intFromFloat(idx_val.number));
+                const idx: usize = @intFromFloat(idx_val.number);
                 const t = try self.tuples.get(tuple_id);
                 if (idx < t.items.len) {
                     try self.writeRegister(instr.a, t.items[idx]);
@@ -1907,8 +1906,6 @@ fn markRoots(self: *VM) void {
         if (mt) |id| self.tables.mark(id, self);
 }
 
-const lang_testing = revo.lang.testing;
-
 test "is_false truthiness contract" {
     const test_rt = revo.lang.testing;
     var vm = try revo.VM.init(test_rt.runtime());
@@ -1957,7 +1954,6 @@ pub const EvalFailure = root.debug.EvalFailure;
 pub const EvalResult = root.debug.EvalResult;
 const Frame = root.functions.Frame;
 const FunctionPool = root.functions.FunctionPool;
-const UpvalueSpec = root.functions.UpvalueSpec;
 pub const lookup = root.lookup;
 
 pub const memory = root.memory;

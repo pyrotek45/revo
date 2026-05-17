@@ -1,6 +1,5 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const builtin = @import("builtin");
 
 const revo = @import("revo");
 const Artifact = revo.lang.Artifact;

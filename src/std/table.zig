@@ -6,7 +6,6 @@ const testing = revo.lang.testing;
 const Data = revo.Data;
 const VM = revo.VM;
 const NativeResult = root.NativeResult;
-const NativeErrPayload = root.NativeErrPayload;
 const dataToString = root.dataToString;
 
 pub fn register(vm: *VM) !void {
@@ -111,7 +110,7 @@ fn insert(args: []const Data, vm: *VM) !NativeResult {
     const table = vm.tables.get(table_id) catch return .errType(0, "table", dataToString(args[0]));
     if (pos < 0) return .errType(1, "non-negative number", dataToString(args[1]));
 
-    const pos_usize = @as(usize, @intCast(pos));
+    const pos_usize: usize = @intCast(pos);
     if (pos_usize <= table.array.items.len) {
         try table.array.insert(vm.runtime.alloc, pos_usize, val);
     } else {
@@ -137,7 +136,7 @@ fn remove(args: []const Data, vm: *VM) !NativeResult {
     const table = vm.tables.get(table_id) catch return .errType(0, "table", dataToString(args[0]));
     if (pos < 0 or pos >= table.array.items.len) return .errType(1, "valid index", dataToString(args[1]));
 
-    const pos_usize = @as(usize, @intCast(pos));
+    const pos_usize: usize = @intCast(pos);
     const removed = table.array.orderedRemove(pos_usize);
     return .okData(removed);
 }

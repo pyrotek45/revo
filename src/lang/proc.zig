@@ -639,6 +639,7 @@ fn decodePayload(
     if (ti == .void) return {};
 
     if (ti == .@"struct") {
+        // SAFETY: all fields set by inline for loop below
         var out: T = undefined;
         inline for (ti.@"struct".fields) |field| {
             @field(out, field.name) = try decodeValue(vm, allocator, span, field.type, items, idx);
@@ -738,6 +739,7 @@ fn decodeValue(
         .@"struct" => |st| {
             const struct_tuple = try expectTuple(vm, data);
             var struct_idx: usize = 0;
+            // SAFETY: all fields set by inline for loop below
             var out: T = undefined;
             inline for (st.fields) |field| {
                 @field(out, field.name) = try decodeValue(
@@ -767,6 +769,7 @@ fn decodeValue(
                 else => return error.InvalidProcReturn,
             };
             if (array_items.len != arr.len) return error.InvalidProcReturn;
+            // SAFETY: all elements set by inline for loop below
             var out: T = undefined;
             var array_idx: usize = 0;
             inline for (0..arr.len) |i| {

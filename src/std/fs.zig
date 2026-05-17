@@ -79,7 +79,7 @@ fn parsePermissions(vm: *VM, value: Data) !File.Permissions {
     switch (value) {
         .number => |n| {
             if (!std.math.isFinite(n) or @floor(n) != n) return error.InvalidPermissions;
-            const raw: PermTag = @as(PermTag, @intFromFloat(n));
+            const raw: PermTag = @intFromFloat(n);
             return @as(File.Permissions, @enumFromInt(raw));
         },
         .atom => |id| {

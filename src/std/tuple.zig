@@ -1,7 +1,6 @@
 const std = @import("std");
 const revo = @import("../root.zig");
 const root = @import("root.zig");
-const testing = revo.lang.testing;
 
 const Data = revo.Data;
 const VM = revo.VM;

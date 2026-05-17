@@ -217,7 +217,7 @@ fn sub_f(args: []const Data, vm: *VM) !NativeResult {
     }
 
     const end = @min(@as(usize, @intCast(start + length)), str.len);
-    const start_usize = @as(usize, @intCast(start));
+    const start_usize: usize = @intCast(start);
     const result = try vm.ownDataString(str[start_usize..end]);
     return .{ .ok = result };
 }
@@ -342,7 +342,7 @@ fn ascii_f(args: []const Data, vm: *VM) !NativeResult {
 fn string_of(args: []const Data, vm: *VM) !NativeResult {
     switch (args[0]) {
         .number => |n| {
-            const code = @as(u32, @intFromFloat(n));
+            const code: u32 = @intFromFloat(n);
             if (code > 127) {
                 return .other("ASCII code out of range");
             }
@@ -356,7 +356,7 @@ fn string_of(args: []const Data, vm: *VM) !NativeResult {
             for (tuple.items) |val| {
                 switch (val) {
                     .number => |n| {
-                        const code = @as(u32, @intFromFloat(n));
+                        const code: u32 = @intFromFloat(n);
                         if (code > 127) {
                             return .other("ASCII code out of range");
                         }

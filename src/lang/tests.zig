@@ -10,7 +10,6 @@ const io = std.testing.io;
 const revo = @import("revo");
 const lang = revo.lang;
 const VM = revo.VM;
-const Data = revo.Data;
 
 const t = @import("testing.zig");
 

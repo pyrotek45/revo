@@ -218,7 +218,9 @@ const Parser = struct {
                 };
                 self.stop_token = prev_stop;
 
+                // SAFETY: set by match branches below
                 var step_node: *Node = undefined;
+                // SAFETY: set by match branches below
                 var end_node: *Node = undefined;
 
                 // for the three part one
@@ -254,6 +256,7 @@ const Parser = struct {
                 if (bp < min_bp) break;
                 _ = self.advance();
 
+                // SAFETY: set by switch branches below
                 var right: *Node = undefined;
                 const into_what = self.peek().type;
                 switch (into_what) {
@@ -556,7 +559,11 @@ const Parser = struct {
     /// const x = expr or let x = expr, with const (a, b) = <expr> tuple destructuring
     /// with tuples and type annotations
     fn parseBinding(self: *Parser, comptime tag: std.meta.Tag(Expr), start: Token) anyerror!*Node {
-        var binding: ast.Binding = .{ .target = undefined, .value = undefined };
+        var binding: ast.Binding = .{
+            // SAFETY: both fields set by subsequent code
+            .target = undefined,
+            .value = undefined,
+        };
 
         if (self.check(.lparen)) {
             _ = self.advance();

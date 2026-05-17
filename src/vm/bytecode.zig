@@ -333,7 +333,6 @@ pub fn deserialize(vm: *VM, data: []const u8, allocator: Allocator) !Deserialize
 }
 
 const test_support = @import("testing.zig");
-const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 
 test "serialize and deserialize round trip" {

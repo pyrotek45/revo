@@ -6,7 +6,6 @@ const mem = revo.memory;
 const Data = mem.Data;
 const t = revo.lang.testing;
 
-const root = @import("root.zig");
 pub const NativeError = revo.std_lib.NativeError;
 pub const NativeErrPayload = revo.std_lib.NativeErrPayload;
 pub const NativeResult = revo.std_lib.NativeResult;

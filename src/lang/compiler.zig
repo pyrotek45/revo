@@ -16,7 +16,6 @@ const ast = lang.ast;
 const Expr = ast.Expr;
 const Node = ast.Node;
 const Binding = ast.Binding;
-const StructField = ast.StructField;
 const StructItem = ast.StructItem;
 const expander = lang.expander;
 const testing = lang.testing;

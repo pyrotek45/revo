@@ -14,7 +14,9 @@ pub const Runtime = struct {
     io: std.Io,
     argv: []const [:0]const u8 = &.{},
     stdin: ?std.Io.File = null,
+    // SAFETY: set by init() before use
     stdout: std.Io.File = undefined,
+    // SAFETY: set by init() before use
     stderr: std.Io.File = undefined,
     vm: ?*VM = null,
     async_backend: ?*async_backend.AsyncBackend = null,

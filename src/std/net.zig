@@ -106,7 +106,7 @@ fn deinitRecvToken(alloc: std.mem.Allocator, token: usize) void {
 }
 
 fn onSendReady(vm: *VM, waiter: *Scheduler.WaitEntry, _: i16) !Scheduler.IoDispatchResult {
-    const t = @as(*SendWaitToken, @ptrFromInt(waiter.token));
+    const t: *SendWaitToken = @ptrFromInt(waiter.token);
     const msg = vm.stringValue(t.message);
     const remaining = msg[t.offset..];
     const flags: u32 = std.posix.MSG.DONTWAIT | std.posix.MSG.NOSIGNAL;
@@ -137,7 +137,7 @@ fn freePending(alloc: std.mem.Allocator, pending: *[]u8) void {
 }
 
 fn onRecvReady(vm: *VM, waiter: *Scheduler.WaitEntry, _: i16) !Scheduler.IoDispatchResult {
-    const t = @as(*RecvWaitToken, @ptrFromInt(waiter.token));
+    const t: *RecvWaitToken = @ptrFromInt(waiter.token);
     const entry_ptr = t.entry_ptr orelse return .{ .completed = true, .woke = false };
     const stream = switch (entry_ptr.*) {
         .stream => |*s| s,
@@ -389,7 +389,7 @@ fn getEntryPtr(socket_data: Data, vm: *VM) !*SocketEntry {
     const table = try vm.tables.get(socket_data.table);
     const d = table.getRaw(Data.new.atom(try vm.internAtom("__entry_ptr"))) orelse
         return error.InvalidSocket;
-    const addr = @as(usize, @intFromFloat(d.number));
+    const addr: usize = @intFromFloat(d.number);
     if (addr == 0) return error.SocketClosed;
     return @as(*SocketEntry, @ptrFromInt(addr));
 }
@@ -423,7 +423,7 @@ fn closeEntry(socket_data: Data, vm: *VM) !void {
 /// connects to a remote host and port, returns a socket handle
 fn connect_fn(args: []const Data, vm: *VM) !NativeResult {
     const host = vm.stringValue(args[0].string);
-    const port: u16 = @as(u16, @intFromFloat(args[1].number));
+    const port: u16 = @intFromFloat(args[1].number);
 
     const host_to_use = if (std.mem.eql(u8, host, "localhost")) "127.0.0.1" else host;
     const addr = std.Io.net.IpAddress.parseIp4(host_to_use, port) catch |err| {
@@ -447,8 +447,8 @@ fn connect_fn(args: []const Data, vm: *VM) !NativeResult {
 /// > net:listen(port: number [, backlog: number]) -> socket
 /// listens for incoming connections on the given port, returns server socket
 fn listen_fn(args: []const Data, vm: *VM) !NativeResult {
-    const port: u16 = @as(u16, @intFromFloat(args[0].number));
-    const backlog: u31 = if (args.len > 1) @as(u31, @intFromFloat(args[1].number)) else 128;
+    const port: u16 = @intFromFloat(args[0].number);
+    const backlog: u31 = if (args.len > 1) @intFromFloat(args[1].number) else 128;
 
     const addr = std.Io.net.IpAddress.parseIp4("0.0.0.0", port) catch |err| {
         return try root.resultTuple(vm, .err, try vm.dataAtom(@errorName(err)));

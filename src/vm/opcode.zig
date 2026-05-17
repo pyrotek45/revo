@@ -1,5 +1,3 @@
-const std = @import("std");
-
 pub const Operand = usize;
 pub const Register = u16;
 
