@@ -350,9 +350,9 @@ pub inline fn mainFiber(self: *VM) *Fiber {
 }
 
 pub fn swapFiber(self: *VM, next: Fiber) Fiber {
-    const previous = self.currentFiber().*;
-    self.currentFiber().* = next;
-    return previous;
+    var tmp = next;
+    std.mem.swap(Fiber, self.currentFiber(), &tmp);
+    return tmp;
 }
 
 pub fn schedParkCurrentForSleepMS(self: *VM, ms: u64) !void {
