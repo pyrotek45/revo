@@ -487,6 +487,9 @@ pub const Compiler = struct {
             try emit.emit(self, if (kind != .con) .store_global else .store_global_const, try self.vm.internAtom(name));
             return;
         }
+        if (binding.target.expr == .tuple_pattern) {
+            try values.validateTuplePatternShape(self, binding.target.expr.tuple_pattern, binding.value, "binding");
+        }
         try self.compile(binding.value, true);
         const src_idx = self.active_registers - 1;
         try values.bindPattern(self, binding.target, src_idx, kind);

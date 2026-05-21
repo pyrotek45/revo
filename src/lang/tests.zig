@@ -1105,7 +1105,7 @@ test "compile report includes function call argument detail" {
         .ParseError,
         2,
         5,
-        "argument 1 to `id` expects int, got string",
+        "argument 1 to `id` expects int, got string\n  got: id(string)\n want: id(int)",
     );
 }
 
@@ -1182,11 +1182,12 @@ test "runtime span for struct field assignment type error points at assignment" 
 
 test "runtime report includes tuple index detail" {
     try t.expectRuntimeFailure(
-        \\ const a, b = (1,)
+        \\ const f = fn() (1,)
+        \\ const a, b = f()
         \\ a
     ,
         .InvalidTuple,
-        1,
+        2,
         2,
         "tuple index 1 out of range for tuple of length 1",
     );
@@ -1837,6 +1838,17 @@ test "assignment to undefined name is rejected" {
         \\ end
         \\ f()
     , .InvalidAssignmentTarget, 2, 6, "assignment target `y` is not declared");
+}
+
+test "tuple binding mismatch reports item counts" {
+    try t.expectCompileFailure(
+        \\ const a, b = (1,)
+    ,
+        .ParseError,
+        1,
+        15,
+        "tuple binding expects at least 2 items, got 1",
+    );
 }
 
 //

@@ -109,11 +109,23 @@ pub fn bindPattern(self: *Compiler, pattern: *const Node, source_idx: usize, kin
 
 pub fn compileAssign(self: *Compiler, target: *const Node, value: *const Node) !void {
     if (target.expr == .tuple_pattern) {
+        try validateTuplePatternShape(self, target.expr.tuple_pattern, value, "assignment");
         try self.compile(value, true);
         const src_idx = self.active_registers - 1;
         return bindPattern(self, target, src_idx, .let);
     }
     return compileAssignSimple(self, target, value);
+}
+
+pub fn validateTuplePatternShape(self: *Compiler, pattern: []*Node, value: *const Node, context: []const u8) !void {
+    if (value.expr != .tuple) return;
+    if (value.expr.tuple.len >= pattern.len) return;
+    const msg = try std.fmt.allocPrint(
+        self.alloc,
+        "tuple {s} expects at least {d} items, got {d}",
+        .{ context, pattern.len, value.expr.tuple.len },
+    );
+    return self.fail(.ParseError, value, msg);
 }
 
 fn compileAssignSimple(self: *Compiler, target: *const Node, value: *const Node) !void {
