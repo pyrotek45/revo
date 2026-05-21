@@ -12,6 +12,7 @@ const StructItem = ast.StructItem;
 const emit = @import("emit.zig");
 const flow = @import("flow.zig");
 const state = @import("state.zig");
+const type_check = @import("type_check.zig");
 const toRegister = @import("emit.zig").toRegister;
 
 pub const BindingKind = enum { global, let, con };
@@ -23,6 +24,12 @@ pub fn compileLocalBinding(self: *Compiler, name: []const u8, value: *const Node
     if (effective_type_name == null) effective_type_name = inferTypeFromLiteral(value);
     if (effective_type_name) |tn| {
         if (state.currentFunctionState(self)) |fn_state| try fn_state.var_types.put(name, tn);
+    }
+
+    if (type_name) |tn| {
+        type_check.validateBindingType(self, tn, value) catch |err| switch (err) {
+            error.TypeError => return self.fail(.ParseError, value, "type mismatch"),
+        };
     }
 
     const slot = if (value.expr == .fn_expr)
@@ -115,6 +122,9 @@ fn compileAssignSimple(self: *Compiler, target: *const Node, value: *const Node)
         },
         .field => |field| {
             if (self.resolveTypedStructFieldOffset(field.object, field.name)) |field_offset| {
+                type_check.validateAssignmentType(self, target, value) catch |err| switch (err) {
+                    error.TypeError => return self.fail(.ParseError, value, "type mismatch on struct field"),
+                };
                 try self.compile(field.object, true);
                 try compileAssignIntoStructOffset(self, field_offset, value);
             } else {

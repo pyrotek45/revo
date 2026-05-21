@@ -25,6 +25,7 @@ pub const state = @import("state.zig");
 const state_mod = @import("state.zig");
 pub const struct_layout = @import("struct_layout.zig");
 pub const types = @import("types.zig");
+pub const type_check = @import("type_check.zig");
 const values = @import("values.zig");
 
 pub const LowerErrorKind = enum { ParseError, UnsupportedSyntax, InvalidAssignmentTarget, IntegerOutOfRange };
@@ -182,6 +183,7 @@ pub const Compiler = struct {
                     }
                     const specialized_op = opcode_select.selectUnaryOpcode(.negate, operand_type);
                     try emit.emit(self, specialized_op, 0);
+                    propagateUnaryType(self, u);
                 },
                 .not => {
                     try self.compile(u.expr, true);
@@ -230,6 +232,7 @@ pub const Compiler = struct {
                     else => opcode_select.selectBinaryOpcode(generic_op, left_type, right_type),
                 };
                 try emit.emit(self, specialized_op, 0);
+                propagateBinaryType(self, b);
             },
             .and_expr => |v| try flow.compileAnd(self, v.left, v.right),
             .or_expr => |v| try flow.compileOr(self, v.left, v.right),
@@ -343,11 +346,32 @@ pub const Compiler = struct {
                 const argc = call.args.len | (@as(usize, @intFromBool(call.implicit_self)) << 15);
                 try emit.emit(self, .call_field, @intCast(argc));
             },
+            .ident => |fn_name| {
+                try validateCallArgs(self, fn_name, call.args);
+                try self.compile(call.callee, true);
+                for (call.args) |arg| try self.compile(arg, true);
+                try emit.emit(self, .call, @intCast(call.args.len + @intFromBool(call.implicit_self)));
+            },
             else => {
                 try self.compile(call.callee, true);
                 for (call.args) |arg| try self.compile(arg, true);
                 try emit.emit(self, .call, @intCast(call.args.len + @intFromBool(call.implicit_self)));
             },
+        }
+    }
+
+    fn validateCallArgs(self: *Compiler, fn_name: []const u8, args: []const *Node) !void {
+        const fn_state = state_mod.currentFunctionState(self) orelse return;
+        const sig = fn_state.fn_signatures.get(fn_name) orelse return;
+        const min_args = @min(sig.param_types.len, args.len);
+        var i: usize = 0;
+        while (i < min_args) : (i += 1) {
+            if (sig.param_types[i]) |expected_type| {
+                const actual_type = type_check.inferExprType(self, args[i]);
+                type_check.checkType(self.alloc, type_check.typeInfoFromName(expected_type), actual_type, args[i].span) catch |err| switch (err) {
+                    error.TypeError => return self.fail(.ParseError, args[i], "type mismatch in function call"),
+                };
+            }
         }
     }
 
@@ -424,6 +448,19 @@ pub const Compiler = struct {
             self.max_registers = caller_max_registers;
         }
 
+        var param_types = try std.ArrayList(?[]const u8).initCapacity(self.alloc, params.len);
+        defer param_types.deinit(self.alloc);
+        for (params) |p| param_types.append(self.alloc, p.type_name) catch return error.OutOfMemory;
+        const sig = try self.alloc.create(FunctionState.FnSig);
+        errdefer {
+            self.alloc.free(sig.param_types);
+            self.alloc.destroy(sig);
+        }
+        sig.* = .{
+            .param_types = try param_types.toOwnedSlice(self.alloc),
+            .return_type = return_type,
+        };
+
         var s = try FunctionState.init(self.alloc);
         s.return_type = return_type;
         for (params, 0..) |param, idx| {
@@ -480,7 +517,58 @@ pub const Compiler = struct {
         const proto_id = try self.vm.functions.createPrototype(.{ .addr = body_addr, .arity = @intCast(params.len), .register_count = @intCast(fn_register_count), .name = name, .upvalue_specs = finished.upvalues.items, .const_locals = const_locals, .const_local_bits = &.{} });
         try emit.emit(self, .closure, proto_id);
 
+        if (state_mod.currentFunctionState(self)) |enclosing| {
+            try enclosing.fn_signatures.put(name, sig);
+        } else {
+            self.alloc.free(sig.param_types);
+            self.alloc.destroy(sig);
+        }
+
         state_pushed = false;
+    }
+
+    fn propagateBinaryType(self: *Compiler, b: anytype) void {
+        const left_type = type_check.inferExprType(self, b.left);
+        const right_type = type_check.inferExprType(self, b.right);
+
+        const result_type = types.inferBinaryOp(
+            switch (b.op) {
+                inline else => |tag| @field(types.BinaryOp, @tagName(tag)),
+            },
+            left_type,
+            right_type,
+        );
+        if (result_type != .any) {
+            const type_str = typeStr(result_type);
+            if (state_mod.currentFunctionState(self)) |fn_state| {
+                _ = fn_state.var_types.put("__result", type_str) catch {};
+            }
+        }
+    }
+
+    fn propagateUnaryType(self: *Compiler, u: anytype) void {
+        const operand_type = type_check.inferExprType(self, u.expr);
+        const result_type = types.inferUnaryOp(
+            switch (u.op) {
+                .negate => types.UnaryOp.negate,
+                .not => types.UnaryOp.not,
+                .spawn, .join, .yield => return,
+            },
+            operand_type,
+        );
+        if (result_type != .any) {
+            const type_str = typeStr(result_type);
+            if (state_mod.currentFunctionState(self)) |fn_state| {
+                _ = fn_state.var_types.put("__result", type_str) catch {};
+            }
+        }
+    }
+
+    fn typeStr(t: types.TypeInfo) []const u8 {
+        return switch (t) {
+            .struct_type => |s| s,
+            else => @tagName(t),
+        };
     }
 
     pub fn fail(self: *Compiler, kind: LowerErrorKind, expr: *const Node, message: []const u8) error{LoweringFailed} {

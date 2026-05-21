@@ -48,7 +48,6 @@ pub fn maybeFoldConstBinary(self: *Compiler, b: anytype) !bool {
     return false;
 }
 
-
 pub const ConstantFolder = struct {
     alloc: std.mem.Allocator,
     comp: *Compiler,

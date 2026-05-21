@@ -28,6 +28,12 @@ pub const FunctionState = struct {
     scope_starts: std.ArrayList(usize),
     return_type: ?[]const u8 = null,
     var_types: std.StringHashMap(?[]const u8),
+    fn_signatures: std.StringHashMap(*const FnSig),
+
+    pub const FnSig = struct {
+        param_types: []const ?[]const u8,
+        return_type: ?[]const u8,
+    };
 
     pub fn init(alloc: std.mem.Allocator) !FunctionState {
         return .{
@@ -37,6 +43,7 @@ pub const FunctionState = struct {
             .upvalues = try std.ArrayList(UpvalueSpec).initCapacity(alloc, 4),
             .scope_starts = try std.ArrayList(usize).initCapacity(alloc, 8),
             .var_types = std.StringHashMap(?[]const u8).init(alloc),
+            .fn_signatures = std.StringHashMap(*const FnSig).init(alloc),
         };
     }
 
@@ -46,6 +53,12 @@ pub const FunctionState = struct {
         self.upvalues.deinit(alloc);
         self.scope_starts.deinit(alloc);
         self.var_types.deinit();
+        var it = self.fn_signatures.iterator();
+        while (it.next()) |entry| {
+            alloc.free(entry.value_ptr.*.param_types);
+            alloc.destroy(entry.value_ptr.*);
+        }
+        self.fn_signatures.deinit();
     }
 };
 
