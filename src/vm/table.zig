@@ -1,3 +1,21 @@
+// a table is a value that maps keys to values. keys can be numbers, atoms,
+// strings, tables, tuples, or functions. values can be anything
+//
+// integer keys (non-negative, finite, whole numbers) have special behavior:
+// sequential keys 0, 1, 2, ... fill contiguous slots. a gap -- like setting
+// index 6 when only index 0 exists -- stores the value as a keyed entry
+// instead of padding empty slots. negative numbers, nan, inf, and floats
+// like 1.5 are always keyed entries
+//
+// iteration visits integer slots first in numeric order, then keyed entries
+// in insertion order. this makes `fmt("%t", t)` predictable
+//
+// assignment to an existing key overwrites the old value, whether it's an
+// integer slot or a keyed entry
+//
+// equality is by identity: `{a = 1} == {a = 1}` is false -- two literals
+// are different tables
+
 const std = @import("std");
 
 const revo = @import("revo");
@@ -450,6 +468,116 @@ test "table push appends positional values" {
 
 const tt = revo.lang.testing;
 
+//
+// integer array index boundary tests
+//
+
+test "putRaw: integer key in range 0..<len overwrites existing element" {
+    var table = try Table.init(std.testing.allocator);
+    defer table.deinit();
+    try table.push(Data.new.num(10));
+    try table.push(Data.new.num(20));
+    try table.push(Data.new.num(30));
+
+    try table.putRaw(Data.new.num(1), Data.new.num(99));
+    try std.testing.expectEqual(@as(usize, 3), table.array.items.len);
+    try std.testing.expectEqual(Data.new.num(10), table.array.items[0]);
+    try std.testing.expectEqual(Data.new.num(99), table.array.items[1]);
+    try std.testing.expectEqual(Data.new.num(30), table.array.items[2]);
+}
+
+test "putRaw: integer key == len appends to array" {
+    var table = try Table.init(std.testing.allocator);
+    defer table.deinit();
+    try table.push(Data.new.num(10));
+    try table.push(Data.new.num(20));
+
+    try table.putRaw(Data.new.num(2), Data.new.num(30));
+    try std.testing.expectEqual(@as(usize, 3), table.array.items.len);
+    try std.testing.expectEqual(Data.new.num(30), table.array.items[2]);
+}
+
+test "putRaw: integer key > len goes to hash" {
+    var table = try Table.init(std.testing.allocator);
+    defer table.deinit();
+    try table.push(Data.new.num(10));
+
+    try table.putRaw(Data.new.num(5), Data.new.num(99));
+    try std.testing.expectEqual(@as(usize, 1), table.array.items.len);
+    try std.testing.expectEqual(Data.new.num(99), table.hash_entries.get(Data.new.num(5)).?);
+}
+
+test "putRaw: negative integer key always goes to hash" {
+    var table = try Table.init(std.testing.allocator);
+    defer table.deinit();
+    try table.push(Data.new.num(10));
+
+    try table.putRaw(Data.new.num(-1), Data.new.num(99));
+    try std.testing.expectEqual(@as(usize, 1), table.array.items.len);
+    try std.testing.expectEqual(Data.new.num(99), table.hash_entries.get(Data.new.num(-1)).?);
+}
+
+test "putRaw: float key always goes to hash" {
+    var table = try Table.init(std.testing.allocator);
+    defer table.deinit();
+
+    try table.putRaw(Data.new.num(1.5), Data.new.num(99));
+    try std.testing.expectEqual(@as(usize, 0), table.array.items.len);
+    try std.testing.expectEqual(Data.new.num(99), table.hash_entries.get(Data.new.num(1.5)).?);
+}
+
+test "putRaw: NaN and Infinity keys go to hash" {
+    var table = try Table.init(std.testing.allocator);
+    defer table.deinit();
+
+    try table.putRaw(Data.new.num(std.math.nan(f64)), Data.new.num(1));
+    try table.putRaw(Data.new.num(std.math.inf(f64)), Data.new.num(2));
+    try std.testing.expectEqual(@as(usize, 0), table.array.items.len);
+    try std.testing.expectEqual(@as(usize, 2), table.hash_entries.count());
+}
+
+test "putRaw: getRaw retrieves from array for integer keys" {
+    var table = try Table.init(std.testing.allocator);
+    defer table.deinit();
+    try table.push(Data.new.num(10));
+    try table.push(Data.new.num(20));
+
+    try std.testing.expectEqual(Data.new.num(10), table.getRaw(Data.new.num(0)).?);
+    try std.testing.expectEqual(Data.new.num(20), table.getRaw(Data.new.num(1)).?);
+    try std.testing.expectEqual(null, table.getRaw(Data.new.num(2)));
+}
+
+test "putRaw: getRaw retrieves from hash for negative and float keys" {
+    var table = try Table.init(std.testing.allocator);
+    defer table.deinit();
+    try table.putRaw(Data.new.num(-1), Data.new.num(42));
+    try table.putRaw(Data.new.num(1.5), Data.new.num(99));
+
+    try std.testing.expectEqual(Data.new.num(42), table.getRaw(Data.new.num(-1)).?);
+    try std.testing.expectEqual(Data.new.num(99), table.getRaw(Data.new.num(1.5)).?);
+}
+
+test "putRaw: integer key > len in empty table goes to hash" {
+    var table = try Table.init(std.testing.allocator);
+    defer table.deinit();
+
+    try table.putRaw(Data.new.num(0), Data.new.num(10));
+    try std.testing.expectEqual(@as(usize, 1), table.array.items.len);
+    try std.testing.expectEqual(Data.new.num(10), table.array.items[0]);
+
+    try table.putRaw(Data.new.num(6), Data.new.num(42));
+    try std.testing.expectEqual(@as(usize, 1), table.array.items.len);
+    try std.testing.expectEqual(Data.new.num(42), table.hash_entries.get(Data.new.num(6)).?);
+
+    try table.putRaw(Data.new.num(1), Data.new.num(20));
+    try std.testing.expectEqual(@as(usize, 2), table.array.items.len);
+    try std.testing.expectEqual(Data.new.num(20), table.array.items[1]);
+}
+
+//
+// full
+//
+
 test "table lookup order" {
     try tt.top_string(
         \\ const mt = {metafield = "second-", __index = fn(self) "last"}
@@ -470,5 +598,144 @@ test "computed table keys use runtime values" {
         \\ const t = {[k] = 9}
         \\ t.x
     , 9);
+}
+
+
+test "array-style table literal" {
+    try testing.top_number(
+        \\ const tbl = {10, 20, 30}
+        \\ tbl[0] + tbl[1] + tbl[2]
+    , 60);
+}
+
+test "numeric and string keys are distinct" {
+    try testing.top_number(
+        \\ const t = {}
+        \\ t[1] = 100
+        \\ t["1"] = 200
+        \\ t[1] + t["1"]
+    , 300);
+}
+
+test "if uses atom false with table field access" {
+    try testing.top_number(
+        \\do
+        \\    const t = {answer = 41}
+        \\    if :false t.answer else t.answer + 1
+        \\end
+    , 42);
+}
+
+test "metatable __len works on tables" {
+    try testing.top_number(
+        \\ const mt = {__len = fn(self) 42}
+        \\ const t = set_metatable({}, mt)
+        \\ len(t)
+    , 42);
+}
+
+test "metatable __tostring works on tables" {
+    try testing.top_string(
+        \\ const mt = {__tostring = fn(self) "custom"}
+        \\ const t = set_metatable({a = 1}, mt)
+        \\ tostring(t)
+    , "custom");
+}
+
+test "metatable __index for field access" {
+    try testing.top_number(
+        \\ const mt = {__index = fn(self, key) 42}
+        \\ const t = set_metatable({}, mt)
+        \\ t.missing_field
+    , 42);
+}
+
+test "metatable __newindex for field assignment" {
+    try testing.top_number(
+        \\ const mt = {__newindex = fn(self, key, value) table.rawset(self, key, 99)}
+        \\ const t = set_metatable({}, mt)
+        \\ t.x = 5
+        \\ t.x
+    , 99);
+}
+
+test "metatable __add arithmetic" {
+    try testing.top_number(
+        \\ const mt = {__add = fn(a, b) 100}
+        \\ const t = set_metatable({}, mt)
+        \\ t + 5
+    , 100);
+}
+
+test "metatable __eq comparison" {
+    try testing.top_true(
+        \\ const mt = {__eq = fn(a, b) 1}
+        \\ const t = set_metatable({}, mt)
+        \\ t == :anything
+    );
+}
+
+test "multiple tables can share same metatable" {
+    try testing.top_true(
+        \\ const mt = {__len = fn(self) 77}
+        \\ const t1 = set_metatable({}, mt)
+        \\ const t2 = set_metatable({x = 1}, mt)
+        \\ len(t1) == 77 and len(t2) == 77
+    );
+}
+
+test "get_metatable retrieves correct metatable" {
+    try testing.top_true(
+        \\ const mt = {__len = fn(self) 50}
+        \\ const t = set_metatable({}, mt)
+        \\ const retrieved_mt = get_metatable(t)
+        \\ retrieved_mt == mt
+    );
+}
+
+test "metatable on metatable works" {
+    try testing.top_number(
+        \\ const meta_mt = {__len = fn(self) 9}
+        \\ const mt = set_metatable({}, meta_mt)
+        \\ len(mt)
+    , 9);
+}
+
+test "metamethod failures are runtime errors" {
+    try testing.expectRuntimeFailureWithMessage(
+        \\ const mt = {__tostring = fn(self) panic("boom")}
+        \\ const t = set_metatable({}, mt)
+        \\ tostring(t)
+    , .Panic, "boom");
+}
+
+test "method calls on metatable tables work" {
+    try testing.top_number(
+        \\ const mt = {get_x = fn(self) self.x}
+        \\ const t = set_metatable({x = 12}, mt)
+        \\ t:get_x()
+    , 12);
+}
+
+test "non-table values can use metatable fields as methods" {
+    try testing.top_string(
+        \\ const mt = {reverse = fn(self) "fdsa"}
+        \\ set_metatable("", mt)
+        \\ "asdf":reverse()
+    , "fdsa");
+}
+
+test "pipe: explicit placeholder method receiver with table" {
+    try testing.top_number(
+        \\ const obj = { inner = 40, meth = fn(self, x) self.inner + x }
+        \\ obj |> _:meth(2)
+    , 42);
+}
+
+test "pipe: explicit placeholder index access with table" {
+    try testing.top_number(
+        \\ const t = {5, 6, 7}
+        \\ 1 |> t[_]
+    , 6);
 }
 
