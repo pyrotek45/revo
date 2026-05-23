@@ -31,8 +31,6 @@ pub fn register(vm: *VM) !void {
         .{ .key = .{ .core = .__index }, .func = root.define(&[_]root.TypeSpec{ .tuple, .number }, index) },
         .{ .key = .{ .named = "add" }, .func = root.define(&[_]root.TypeSpec{ .tuple, .tuple }, add) },
         .{ .key = .{ .named = "mul" }, .func = root.define(&[_]root.TypeSpec{ .tuple, .number }, mul) },
-        .{ .key = .{ .core = .__tostring }, .func = root.define(&[_]root.TypeSpec{.tuple}, _tostring) },
-        .{ .key = .{ .core = .__debug }, .func = root.define(&[_]root.TypeSpec{.tuple}, _debug) },
     }, Data.new.tuple(std.math.maxInt(usize)));
 }
 

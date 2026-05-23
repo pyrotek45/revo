@@ -71,8 +71,6 @@ pub fn register(vm: *VM) !void {
         .{ .key = .{ .named = "sum" }, .func = root.define(&.{.table}, sum) },
         .{ .key = .{ .named = "len" }, .func = root.define(&.{.table}, len) },
         .{ .key = .{ .named = "add" }, .func = root.define(&.{ .table, .table }, tableAdd) },
-        .{ .key = .{ .core = .__tostring }, .func = root.define(&.{.table}, tostring) },
-        .{ .key = .{ .core = .__debug }, .func = root.define(&.{.table}, debug) },
         // from iter.zig
         .{ .key = .{ .named = "map" }, .func = root.define(&.{ .any, .function }, iter.map_fn) },
         .{ .key = .{ .named = "filter" }, .func = root.define(&.{ .any, .function }, iter.filter_fn) },
