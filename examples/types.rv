@@ -11,28 +11,30 @@
 
 # scalar binds & coercion
 
-type A = (:ok, any) | (:err, atom)
-
-fn pick(how: A) -> any do
-  print(how)
-  match how
-  | (:ok, v) print("ok: ", v)
-  | (:err, e) print("err: ", e)
-end
-
-fn is_len(what: (int, string)) -> :true | :false do
-  const length, str = what
-  len(str) == length
-end
-
-let pred1: A = (:err, :UhOh)
-pick(pred1)
-
-let pred2: A = (:ok, "asdf")
-pick(pred2)
-
-# should infer
-pick((:err, :Boom))
+const id = fn(x) x * 2
+id(1,2,3)
+# type A = (:ok, any) | (:err, atom)
+#
+# fn pick(how: A) -> any do
+#   print(how)
+#   match how
+#   | (:ok, v) print("ok: ", v)
+#   | (:err, e) print("err: ", e)
+# end
+#
+# fn is_len(what) do
+#   const length, str = what
+#   len(str) == length
+# end
+#
+# let pred1: A = (:err, :UhOh)
+# pick(pred1)
+#
+# let pred2: A = (:ok, "asdf")
+# pick(pred2)
+#
+# # should infer
+# pick((:err, :Boom))
 
 # let pred3: A = (:eee, "asdf") # must crash
 # pick(pred3)
@@ -62,7 +64,7 @@ let z: float = 10
 fn add(a: int, b: int) a + b
 let sum = add(3, 4)
 # add(3, "wrong")    # argument 2 to `add` expects int, got string
-# add("wrong", 3)    # argument 1 to `add` expects int, got string
+add("wrong", 3)    # argument 1 to `add` expects int, got string
 
 # typed function return validation
 # fn bad_return() -> int do

@@ -1003,7 +1003,7 @@ test "compile report includes function call argument detail" {
         .ParseError,
         2,
         5,
-        "argument 1 to `id` expects int, got string\n  got: id(string)\n want: id(int)",
+        "argument 1 (`x`) to `id` expects int, got string\n  got: id(x: string)\n want: id(x: int)",
     );
 }
 

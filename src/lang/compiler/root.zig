@@ -456,9 +456,9 @@ pub const Compiler = struct {
             defer actual_types.deinit(self.alloc);
             for (args) |arg| try actual_types.append(self.alloc, types.typeName(type_check.inferExprType(self, arg)));
             
-            const expected_sig = try formatCallSignature(self.alloc, fn_name, expected_types.items);
+            const expected_sig = try formatCallSignatureWithNames(self.alloc, fn_name, sig.param_names, expected_types.items);
             defer self.alloc.free(expected_sig);
-            const actual_sig = try formatCallSignature(self.alloc, fn_name, actual_types.items);
+            const actual_sig = try formatCallSignatureWithNames(self.alloc, fn_name, sig.param_names[0..args.len], actual_types.items);
             defer self.alloc.free(actual_sig);
             
             const msg = try std.fmt.allocPrint(
@@ -480,9 +480,9 @@ pub const Compiler = struct {
             defer actual_types.deinit(self.alloc);
             for (args) |arg| try actual_types.append(self.alloc, types.typeName(type_check.inferExprType(self, arg)));
             
-            const expected_sig = try formatCallSignature(self.alloc, fn_name, expected_types.items);
+            const expected_sig = try formatCallSignatureWithNames(self.alloc, fn_name, sig.param_names, expected_types.items);
             defer self.alloc.free(expected_sig);
-            const actual_sig = try formatCallSignature(self.alloc, fn_name, actual_types.items);
+            const actual_sig = try formatCallSignatureWithNames(self.alloc, fn_name, sig.param_names, expected_types.items);
             defer self.alloc.free(actual_sig);
             
             const msg = try std.fmt.allocPrint(
@@ -504,21 +504,21 @@ pub const Compiler = struct {
                         defer actual_types.deinit(self.alloc);
                         for (args) |arg| try actual_types.append(self.alloc, types.typeName(type_check.inferExprType(self, arg)));
 
-                        var expected_types = try std.ArrayList([]const u8).initCapacity(self.alloc, sig.param_types.len);
-                        defer expected_types.deinit(self.alloc);
+                        var expected_types_all = try std.ArrayList([]const u8).initCapacity(self.alloc, sig.param_types.len);
+                        defer expected_types_all.deinit(self.alloc);
                         for (sig.param_types) |maybe_type| {
-                            try expected_types.append(self.alloc, maybe_type orelse "any");
+                            try expected_types_all.append(self.alloc, maybe_type orelse "any");
                         }
 
-                        const actual_sig = try formatCallSignature(self.alloc, fn_name, actual_types.items);
+                        const actual_sig = try formatCallSignatureWithNames(self.alloc, fn_name, sig.param_names, actual_types.items);
                         defer self.alloc.free(actual_sig);
-                        const expected_sig = try formatCallSignature(self.alloc, fn_name, expected_types.items);
+                        const expected_sig = try formatCallSignatureWithNames(self.alloc, fn_name, sig.param_names, expected_types_all.items);
                         defer self.alloc.free(expected_sig);
 
                         const msg = try std.fmt.allocPrint(
                             self.alloc,
-                            "argument {d} to `{s}` expects {s}, got {s}\n  got: {s}\n want: {s}",
-                            .{ i + 1, fn_name, expected_type, types.typeName(actual_type), actual_sig, expected_sig },
+                            "argument {d} (`{s}`) to `{s}` expects {s}, got {s}\n  got: {s}\n want: {s}",
+                            .{ i + 1, sig.param_names[i], fn_name, expected_type, types.typeName(actual_type), actual_sig, expected_sig },
                         );
                         return self.fail(.ParseError, args[i], msg);
                     },
@@ -534,6 +534,21 @@ pub const Compiler = struct {
         try buf.append(alloc, '(');
         for (types_list, 0..) |type_name, idx| {
             if (idx > 0) try buf.appendSlice(alloc, ", ");
+            try buf.appendSlice(alloc, type_name);
+        }
+        try buf.append(alloc, ')');
+        return try buf.toOwnedSlice(alloc);
+    }
+
+    fn formatCallSignatureWithNames(alloc: std.mem.Allocator, fn_name: []const u8, names: []const []const u8, types_list: []const []const u8) ![]u8 {
+        var buf = try std.ArrayList(u8).initCapacity(alloc, fn_name.len + (names.len + types_list.len) * 12 + 4);
+        defer buf.deinit(alloc);
+        try buf.appendSlice(alloc, fn_name);
+        try buf.append(alloc, '(');
+        for (names, types_list, 0..) |name, type_name, idx| {
+            if (idx > 0) try buf.appendSlice(alloc, ", ");
+            try buf.appendSlice(alloc, name);
+            try buf.appendSlice(alloc, ": ");
             try buf.appendSlice(alloc, type_name);
         }
         try buf.append(alloc, ')');

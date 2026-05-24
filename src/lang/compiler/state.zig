@@ -33,6 +33,7 @@ pub const FunctionState = struct {
     fn_signatures: std.StringHashMap(*FnSig),
 
     pub const FnSig = struct {
+        param_names: []const []const u8,
         param_types: []const ?[]const u8,
         return_type: ?[]const u8,
     };
@@ -355,11 +356,16 @@ pub fn allocFnSig(self: *Compiler, params: []const ast.FnParam, return_type: ?[]
     const sig = try self.alloc.create(FunctionState.FnSig);
     errdefer self.alloc.destroy(sig);
 
+    var param_names = try std.ArrayList([]const u8).initCapacity(self.alloc, params.len);
+    errdefer param_names.deinit(self.alloc);
+    for (params) |p| try param_names.append(self.alloc, p.name);
+
     var param_types = try std.ArrayList(?[]const u8).initCapacity(self.alloc, params.len);
     errdefer param_types.deinit(self.alloc);
     for (params) |p| try param_types.append(self.alloc, p.type_name);
 
     sig.* = .{
+        .param_names = try param_names.toOwnedSlice(self.alloc),
         .param_types = try param_types.toOwnedSlice(self.alloc),
         .return_type = return_type,
     };
