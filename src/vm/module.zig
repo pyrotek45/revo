@@ -13,7 +13,14 @@ pub fn runModule(vm: *revo.VM, source_path: []const u8, source: []const u8) !rev
 pub fn runModuleReport(vm: *revo.VM, source_path: []const u8, source: []const u8) !revo.EvalResult {
     const artifact = switch (try lang.build(vm, .{ .name = source_path, .text = source }, .{})) {
         .ok => |ok| ok,
-        .err => return error.ParseError,
+        .err => |lang_err| {
+            var buf = std.Io.Writer.Allocating.init(vm.runtime.alloc);
+            defer buf.deinit();
+            lang.renderError(vm.runtime.alloc, &buf.writer, .{ .name = source_path, .text = source }, lang_err) catch {};
+            std.debug.print("{s}", .{buf.written()});
+            lang.deinitError(vm.runtime.alloc, lang_err);
+            return error.ParseError;
+        },
     };
     defer vm.runtime.alloc.free(artifact.instructions);
     defer vm.runtime.alloc.free(artifact.spans);

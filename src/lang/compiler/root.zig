@@ -203,6 +203,9 @@ pub const Compiler = struct {
                         try emit.emit(self, .load_upval, upval_id);
                         try self.upvalue_cache.put(upval_id, self.active_registers - 1);
                     }
+                } else if (self.type_aliases.get(name)) |_| {
+                    const msg = try std.fmt.allocPrint(self.alloc, "type name `{s}` used as a value", .{name});
+                    return self.fail(.ParseError, expr, msg);
                 } else try emit.emit(self, .load_global, try self.vm.internAtom(name));
             },
             .unary => |u| switch (u.op) {
@@ -447,7 +450,7 @@ pub const Compiler = struct {
         while (i < min_args) : (i += 1) {
             if (sig.param_types[i]) |expected_type| {
                 const actual_type = type_check.inferExprType(self, args[i]);
-                type_check.checkType(self.alloc, type_check.typeInfoFromName(expected_type), actual_type, args[i].span) catch |err| switch (err) {
+                type_check.checkType(self.alloc, type_check.resolveTypeName(self, expected_type), actual_type, args[i].span) catch |err| switch (err) {
                     error.TypeError => {
                         var actual_types = try std.ArrayList([]const u8).initCapacity(self.alloc, args.len);
                         defer actual_types.deinit(self.alloc);
@@ -496,6 +499,39 @@ pub const Compiler = struct {
         const layout = self.struct_layouter.getLayout(type_name orelse return null) orelse return null;
         for (layout.fields, 0..) |field, idx| if (std.mem.eql(u8, field.name, field_name)) return idx;
         return null;
+    }
+
+    fn aliasRuntimeValue(self: *Compiler, ti: types.TypeInfo) ?Data {
+        return switch (ti) {
+            .atom => |name| {
+                const id = self.vm.internAtom(types.atomPayload(name)) catch return null;
+                return Data.new.atom(id);
+            },
+            .@"union" => |variants| blk: {
+                if (variants.len == 0) break :blk null;
+                break :blk self.unionVariantRuntimeValue(variants[0]);
+            },
+            else => null,
+        };
+    }
+
+    fn unionVariantRuntimeValue(self: *Compiler, variant: types.UnionVariant) ?Data {
+        if (variant.name.len == 0) {
+            if (variant.types.len == 0) return null;
+            if (variant.types.len == 1) return aliasRuntimeValue(self, variant.types[0]);
+            return null;
+        }
+
+        var items = std.ArrayList(Data).initCapacity(self.alloc, variant.types.len + 1) catch return null;
+        defer items.deinit(self.alloc);
+        const atom_id = self.vm.internAtom(types.atomPayload(variant.name)) catch return null;
+        items.append(self.alloc, Data.new.atom(atom_id)) catch return null;
+        for (variant.types) |payload_type| {
+            const payload = aliasRuntimeValue(self, payload_type) orelse return null;
+            items.append(self.alloc, payload) catch return null;
+        }
+        const tid = self.vm.tuples.create(items.items) catch return null;
+        return Data.new.tuple(tid);
     }
 
     pub fn compileComp(self: *Compiler, expr: *Node) InternalLowerError!void {
@@ -659,7 +695,7 @@ pub const Compiler = struct {
         const fn_state = state_mod.currentFunctionState(self) orelse return;
         const declared = fn_state.return_type orelse return;
         const actual = type_check.inferExprType(self, val);
-        const expected = type_check.typeInfoFromName(declared);
+        const expected = type_check.resolveTypeName(self, declared);
         type_check.checkType(self.alloc, expected, actual, val.span) catch |err| switch (err) {
             error.TypeError => {
                 const msg = try std.fmt.allocPrint(
@@ -679,7 +715,7 @@ pub const Compiler = struct {
         };
         if (last_expr.expr == .return_expr) return;
         const actual = type_check.inferExprType(self, last_expr);
-        const expected = type_check.typeInfoFromName(declared);
+        const expected = type_check.resolveTypeName(self, declared);
         type_check.checkType(self.alloc, expected, actual, last_expr.span) catch |err| switch (err) {
             error.TypeError => {
                 const msg = try std.fmt.allocPrint(

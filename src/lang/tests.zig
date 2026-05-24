@@ -2601,6 +2601,26 @@ test "type: typed function rejects first arg wrong type" {
     , .ParseError);
 }
 
+test "type: atom union alias accepts literal and alias value in calls" {
+    try t.top_atom(
+        \\ type A = :one | :two
+        \\ fn pick(how: A) -> any do
+        \\   how
+        \\ end
+        \\ let pred: A = :one
+        \\ pick(pred)
+    , "one");
+
+    try t.top_atom(
+        \\ type A = :one | :two
+        \\ fn pick(how: A) -> any do
+        \\   how
+        \\ end
+        \\ let pred: A = :one
+        \\ pick(:two)
+    , "two");
+}
+
 test "type: typed struct field access" {
     var vm = try VM.init(t.runtime());
     defer vm.deinit();

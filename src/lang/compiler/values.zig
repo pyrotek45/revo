@@ -52,7 +52,7 @@ pub fn compileLocalBinding(self: *Compiler, name: []const u8, value: *const Node
     state.markLocalValueKind(self, slot, if (value.expr == .tuple) .tuple_literal else .unknown);
     try syncLocalTableFields(self, slot, value);
 
-    const inferred_type = if (type_name) |tn| type_check.typeInfoFromName(tn) else type_check.inferExprType(self, value);
+    const inferred_type = if (type_name) |tn| type_check.resolveTypeName(self, tn) else type_check.inferExprType(self, value);
     if (type_check.storedTypeName(inferred_type)) |stored_name| {
         state.setLocalType(self, slot, stored_name);
         if (state.currentFunctionState(self)) |fn_state| try fn_state.var_types.put(name, stored_name);
@@ -261,7 +261,7 @@ pub fn compileStruct(self: *Compiler, expr: *const Node, name: []const u8, items
         if (item == .field and item.field.type_name != null) {
             try field_defs.append(self.alloc, .{
                 .name = item.field.name,
-                .field_type = if (item.field.type_name) |tn| typeInfoFromName(tn) else types_mod.TypeInfo.any,
+                .field_type = if (item.field.type_name) |tn| type_check.resolveTypeName(self, tn) else types_mod.TypeInfo.any,
             });
         }
     }

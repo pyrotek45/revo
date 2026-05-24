@@ -310,4 +310,3 @@ test "repl handles commands" {
     try std.testing.expect(std.mem.indexOf(u8, env.out.written(), "session cleared") != null);
     try std.testing.expect(!(try env.session.step(&env.out.writer, ":q")));
 }
-

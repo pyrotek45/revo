@@ -488,7 +488,6 @@ fn printBenchStats(_: *VM, times: []std.Io.Duration) void {
     std.debug.print("| median  {d:.3}ms / {d}ns\n", .{ median_ms, median });
     std.debug.print("| p95     {d:.3}ms / {d}ns\n", .{ p95_ms, p95 });
     std.debug.print("| worst   {d:.3}ms / {d}ns\n", .{ worst_ms, worst });
-
 }
 
 fn printDisassembly(artifact: Artifact, source: []const u8, json: bool) void {

@@ -1318,8 +1318,7 @@ const expr_start_tokens = makeTokenSet(&.{
     .kw_not,    .pipe_forward, .lparen,           .kw_fn,     .kw_if,
     .kw_match,  .kw_do,        .kw_loop,          .kw_break,  .kw_return,
     .kw_import, .kw_spawn,     .kw_join,          .kw_yield,  .lsquiggly,
-    .kw_type,
-    .eof,
+    .kw_type,   .eof,
 });
 
 /// expr allows bare call after it (ident, field, call, fn_expr)

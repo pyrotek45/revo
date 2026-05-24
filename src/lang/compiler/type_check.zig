@@ -17,6 +17,7 @@ pub const TypeError = struct {
 pub fn typeInfoFromName(type_name: []const u8) TypeInfo {
     if (std.mem.eql(u8, type_name, "int")) return .int;
     if (std.mem.eql(u8, type_name, "float")) return .float;
+    if (std.mem.eql(u8, type_name, "number")) return numberType();
     if (std.mem.eql(u8, type_name, "string")) return .string;
     if (std.mem.eql(u8, type_name, "bool")) return .bool;
     if (std.mem.eql(u8, type_name, "void")) return .void;
@@ -91,14 +92,15 @@ pub fn inferExprType(self: *Compiler, expr: *const Node) TypeInfo {
 
 fn inferVarType(self: *Compiler, name: []const u8) TypeInfo {
     const local = state_mod.resolveLocalVar(self, name) orelse return inferTypeMap(self, name);
-    if (local.type_name) |tn| return typeInfoFromName(tn);
+    if (local.type_name) |tn| return resolveTypeName(self, tn);
     return inferTypeMap(self, name);
 }
 
 fn inferTypeMap(self: *Compiler, name: []const u8) TypeInfo {
+    if (self.type_aliases.get(name)) |aliased| return aliased;
     const fn_state = state_mod.currentFunctionState(self) orelse return .any;
     const type_str = fn_state.var_types.get(name) orelse return .any;
-    return typeInfoFromName(type_str orelse return .any);
+    return resolveTypeName(self, type_str orelse return .any);
 }
 
 fn inferIfType(self: *Compiler, v: anytype) TypeInfo {
@@ -130,7 +132,7 @@ fn inferCallReturnType(self: *Compiler, call: anytype) TypeInfo {
 
     if (call.callee.expr == .ident) {
         const sig = state_mod.findFnSignature(self, call.callee.expr.ident) orelse return .any;
-        return if (sig.return_type) |ret| typeInfoFromName(ret) else .any;
+        return if (sig.return_type) |ret| resolveTypeName(self, ret) else .any;
     }
 
     return .any;
@@ -170,10 +172,10 @@ fn inferFnType(self: *Compiler, fn_expr: anytype) TypeInfo {
     var params = std.ArrayList(TypeInfo).initCapacity(self.alloc, fn_expr.params.len) catch return .any;
     defer params.deinit(self.alloc);
     for (fn_expr.params) |p| {
-        const pt = if (p.type_name) |tn| typeInfoFromName(tn) else .any;
+        const pt = if (p.type_name) |tn| resolveTypeName(self, tn) else .any;
         params.append(self.alloc, pt) catch return .any;
     }
-    const ret = if (fn_expr.return_type) |rt| typeInfoFromName(rt) else .any;
+    const ret = if (fn_expr.return_type) |rt| resolveTypeName(self, rt) else .any;
     const sig = self.alloc.create(FunctionSignature) catch return .any;
     sig.* = .{
         .params = params.toOwnedSlice(self.alloc) catch return .any,
@@ -197,8 +199,12 @@ fn inferOrelseType(self: *Compiler, v: anytype) TypeInfo {
 }
 
 pub fn validateBindingType(self: *Compiler, type_name: []const u8, value: *const Node) !void {
-    const expected = typeInfoFromName(type_name);
+    const expected = resolveTypeName(self, type_name);
     const actual = inferExprType(self, value);
+    // atom literal assigned to atom-union alias
+    if (actual == .atom and expected == .@"union") {
+        return;
+    }
     try checkType(self.alloc, expected, actual, value.span);
 }
 
@@ -209,9 +215,10 @@ pub const TypeExprError = error{
     UnsupportedSyntax,
 };
 
-pub fn resolveTypeName(self: *Compiler, name: []const u8) ?TypeInfo {
+pub fn resolveTypeName(self: *Compiler, name: []const u8) TypeInfo {
     if (std.mem.eql(u8, name, "int")) return .int;
     if (std.mem.eql(u8, name, "float")) return .float;
+    if (std.mem.eql(u8, name, "number")) return numberType();
     if (std.mem.eql(u8, name, "string")) return .string;
     if (std.mem.eql(u8, name, "bool")) return .bool;
     if (std.mem.eql(u8, name, "void")) return .void;
@@ -221,9 +228,18 @@ pub fn resolveTypeName(self: *Compiler, name: []const u8) ?TypeInfo {
     return .{ .struct_type = name };
 }
 
+fn numberType() TypeInfo {
+    return TypeInfo{
+        .@"union" = &.{
+            .{ .name = "", .types = &.{TypeInfo.int} },
+            .{ .name = "", .types = &.{TypeInfo.float} },
+        },
+    };
+}
+
 pub fn evalTypeExpr(self: *Compiler, node: *const Node) TypeExprError!TypeInfo {
     return switch (node.expr) {
-        .ident => |name| resolveTypeName(self, name) orelse return error.UnsupportedSyntax,
+        .ident => |name| resolveTypeName(self, name),
         .hash => |name| TypeInfo{ .atom = name },
         .tuple => |items| blk: {
             var types = std.ArrayList(TypeInfo).initCapacity(self.alloc, items.len) catch return error.OutOfMemory;
@@ -261,9 +277,13 @@ fn collectVariants(self: *Compiler, ti: TypeInfo, variants: *std.ArrayList(types
             });
         },
         else => {
+            // make one so its storage outlives this function
+            var one = std.ArrayList(TypeInfo).initCapacity(self.alloc, 1) catch return error.OutOfMemory;
+            defer one.deinit(self.alloc);
+            try one.append(self.alloc, ti);
             try variants.append(self.alloc, .{
                 .name = "",
-                .types = &.{ti},
+                .types = try one.toOwnedSlice(self.alloc),
             });
         },
     }

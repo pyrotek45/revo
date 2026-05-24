@@ -4,23 +4,40 @@
 #   when present, the compiler enforces them at compile time
 #   they also help the compiler optimize your program
 #
-# untyped code defaults to dynamic (any) and works as before
+# untyped code defaults to dynamic (any) and works just fine
 #
 # error gallery:
 #   uncomment the snippets below one at a time to see the helpful messages
 
 # scalar binds & coercion
 
-fn hi() -> :true do
-  :true
+type A = (:ok, any) | (:err, atom)
+
+fn pick(how: A) -> any do
+  print(how)
+  match how
+  | (:ok, v) print("ok: ", v)
+  | (:err, e) print("err: ", e)
 end
+
+let pred1: A = (:err, :UhOh)
+pick(pred1)
+
+let pred2: A = (:ok, "asdf")
+pick(pred2)
+
+# should infer
+pick((:err, :Boom))
+
+# let pred3: A = (:eee, "asdf") # must crash
+# pick(pred3)
 
 # error: return type mismatch: wanted :true, got false
 # fn hi() -> :true do
 #   :false
 # end
 
-hi()
+# hi()
 
 # typed bindings: int literal inferred as int
 let x: int = 42
