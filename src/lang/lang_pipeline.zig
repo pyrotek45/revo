@@ -78,7 +78,11 @@ pub fn parse(allocator: std.mem.Allocator, source: Source, opts: ParseOptions) !
     if (!opts.include_default_macros) {
         return switch (try parseSourceReport(allocator, source.text)) {
             .ok => |expr| .{ .ok = .{ .root = expr } },
-            .err => |failure| .{ .err = failure },
+            .err => |failure| blk: {
+                var diag = failure;
+                if (source.name) |name| diag.source_name = name;
+                break :blk .{ .err = diag };
+            },
         };
     }
 
@@ -89,7 +93,11 @@ pub fn parse(allocator: std.mem.Allocator, source: Source, opts: ParseOptions) !
     if (defaults == .err) return .{ .err = defaults.err };
     const user: ParseResult = switch (try parseSourceReport(allocator, source.text)) {
         .ok => |root| .{ .ok = .{ .root = root } },
-        .err => |failure| .{ .err = failure },
+        .err => |failure| blk: {
+            var diag = failure;
+            if (source.name) |name| diag.source_name = name;
+            break :blk .{ .err = diag };
+        },
     };
     if (user == .err) return .{ .err = user.err };
     return .{ .ok = .{ .root = try mergeWithDefaults(allocator, defaults.ok.root, user.ok.root) } };

@@ -1,6 +1,7 @@
 const std = @import("std");
 
 const revo = @import("revo");
+const diagnostic = revo.lang.diagnostic;
 const Span = revo.lang.ast.Span;
 
 pub const EvalErrorKind = enum {
@@ -104,7 +105,7 @@ pub const EvalFailure = struct {
     }
 
     pub fn renderAt(self: EvalFailure, alloc: std.mem.Allocator, writer: *std.Io.Writer, source_name: []const u8, source: []const u8) !void {
-        try revo.renderFailureAt(alloc, writer, source_name, source, self.span, self.message);
+        try diagnostic.renderAt(alloc, writer, source_name, source, self.span, self.message, &.{}, &.{});
         if (self.trace_len == 0) return;
 
         try writer.writeAll("\nstack trace:\n");

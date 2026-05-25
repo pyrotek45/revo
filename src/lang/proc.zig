@@ -2,6 +2,7 @@ const std = @import("std");
 
 const revo = @import("revo");
 const lang = @import("./root.zig");
+const diagnostic = @import("./diagnostic.zig");
 const Data = revo.Data;
 
 const ast = lang.ast;
@@ -444,7 +445,7 @@ fn renderProcFailure(
 ) void {
     var buf = std.Io.Writer.Allocating.init(allocator);
     defer buf.deinit();
-    revo.renderFailureAt(allocator, &buf.writer, "<proc>", "", span, message) catch {
+    diagnostic.renderAt(allocator, &buf.writer, "<proc>", "", span, message, &.{}, &.{}) catch {
         std.debug.print("proc {s}: {s} error: {s}\n", .{ proc_name, stage, message });
         return;
     };

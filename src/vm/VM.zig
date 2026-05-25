@@ -998,8 +998,7 @@ pub fn getMetatableId(self: *VM, val: Data) !?mem.TableID {
             } else |_| {}
             break :blk self.metatables[@intFromEnum(mem.Type.tuple)];
         },
-        .number => self.metatables[@intFromEnum(mem.Type.number)],
-        else => self.metatables[@intFromEnum(val.tag())],
+        else => |e| self.metatables[@intFromEnum(e)],
     };
 }
 
@@ -2246,9 +2245,6 @@ fn markRoots(self: *VM) void {
             if (waiter.value) |v| self.markData(v);
         }
     }
-
-    for (self.metatables) |mt|
-        if (mt) |id| self.tables.mark(id, self);
 }
 
 test "is_false truthiness contract" {

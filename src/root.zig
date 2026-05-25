@@ -1,5 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const diagnostic = @import("./lang/diagnostic.zig");
 pub const pretty = @import("./pretty.zig");
 pub const std_net = @import("./std/net.zig");
 pub const async_backend = @import("./runtime/async_backend.zig");
@@ -181,41 +182,7 @@ pub fn renderFailureAt(
     span: ?lang.Span,
     message: []const u8,
 ) !void {
-    try pretty.printError(alloc, writer, "{s}", .{message});
-
-    const location = span orelse return;
-
-    var line: usize = 1;
-    var column: usize = 1;
-    var i: usize = 0;
-    while (i < @min(location.start, source.len)) : (i += 1) {
-        if (source[i] == '\n') {
-            line += 1;
-            column = 1;
-        } else {
-            column += 1;
-        }
-    }
-
-    const line_start_pos = std.mem.lastIndexOfScalar(u8, source[0..@min(location.start, source.len)], '\n') orelse 0;
-    const line_start = if (line_start_pos == 0) 0 else line_start_pos + 1;
-    const end_rel = std.mem.indexOfScalar(u8, source[line_start..], '\n') orelse source.len - line_start;
-    const line_text = source[line_start .. line_start + end_rel];
-    const caret_col = if (column == 0) @as(usize, 1) else column;
-    const span_len = @min(location.end -| location.start, line_text.len -| (caret_col - 1));
-    const highlight_len = @max(span_len, 1);
-
-    try writer.print(" --> {s}:{d}:{d}\n", .{ source_name, line, column });
-    try writer.writeAll("   |\n");
-    try writer.print("{d: >2} | {s}\n", .{ line, line_text });
-    try writer.writeAll("   | ");
-    for (1..caret_col) |_| try writer.writeByte(' ');
-    try writer.writeByte('^');
-    if (highlight_len > 1) {
-        for (0..highlight_len - 2) |_| try writer.writeByte('~');
-        try writer.writeByte('^');
-    }
-    try writer.writeByte('\n');
+    try diagnostic.renderAt(alloc, writer, source_name, source, span, message, &.{}, &.{});
 }
 
 pub const lang = @import("./lang/root.zig");
