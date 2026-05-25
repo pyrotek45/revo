@@ -27,7 +27,7 @@ pub fn register(vm: *VM) !void {
         .{ .key = .{ .named = "ascii" }, .func = root.define(&.{.string}, ascii_f) },
         .{ .key = .{ .named = "contains?" }, .func = root.define(&.{ .string, .string }, contains) },
         .{ .key = .{ .named = "index_of" }, .func = root.define(&.{ .string, .string }, index_of) },
-        // .{ .key = .{ .core = .__index }, .func = root.define(&.{ .string, .number }, index_f) },
+        .{ .key = .{ .core = .__index }, .func = root.define(&.{ .string, .number }, index_f) },
         .{ .key = .{ .named = "add" }, .func = root.define(&.{ .string, .string }, add_f) },
         .{ .key = .{ .named = "mul" }, .func = root.define(&.{ .string, .number }, mul_f) },
         // those should work on string
@@ -113,13 +113,13 @@ fn len_f(args: []const Data, vm: *VM) !NativeResult {
 
 /// > string[idx: number] -> string
 /// returns character at index as single-char string
-// fn index_f(args: []const Data, vm: *VM) !NativeResult {
-//     const str = vm.stringValue(args[0].asString().?);
-//     const idx = if (args[1].asNumber()) |n| revo.asIndex(n) catch return .{ .ok = revo.core_atoms.data(.missing) } else return .errType(1, "number", root.dataToString(args[1]));
-//     if (idx >= str.len) return .{ .ok = revo.core_atoms.data(.missing) };
-//     const result = try vm.ownDataStringNoDedup(str[idx .. idx + 1]);
-//     return .{ .ok = result };
-// }
+fn index_f(args: []const Data, vm: *VM) !NativeResult {
+    const str = vm.stringValue(args[0].asString().?);
+    const idx = if (args[1].asNumber()) |n| revo.asIndex(n) catch return .{ .ok = revo.core_atoms.data(.missing) } else return .errType(1, "number", root.dataToString(args[1]));
+    if (idx >= str.len) return .{ .ok = revo.core_atoms.data(.missing) };
+    const result = try vm.ownDataStringNoDedup(str[idx .. idx + 1]);
+    return .{ .ok = result };
+}
 
 /// > string + other: string -> string
 /// concatenates two strings
