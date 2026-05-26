@@ -17,6 +17,11 @@ fn fakeIoReady(_: *VM, _: *Scheduler.WaitEntry, _: i16) anyerror!Scheduler.IoDis
     return .{};
 }
 
+test {
+    _ = std.testing.refAllDecls(@import("VM.zig"));
+    _ = std.testing.refAllDecls(@import("module.zig"));
+}
+
 test "vm join returns dead fiber result" {
     var vm = try VM.init(vt.runtime());
     defer vm.deinit();

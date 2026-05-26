@@ -200,3 +200,54 @@ test "module message setters clear previous values" {
     vm.clearRuntimeMessage();
     try std.testing.expect(vm.runtime_message == null);
 }
+
+test "module cache reloads changed files" {
+    const alloc = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    try tmp.dir.writeFile(std.testing.io, .{
+        .sub_path = "hot.rv",
+        .data =
+        \\ pub const value = 1
+        ,
+    });
+
+    const module_dir = try tmp.dir.realPathFileAlloc(std.testing.io, ".", alloc);
+    defer alloc.free(module_dir);
+
+    const source_name = try std.fmt.allocPrint(alloc, "{s}/script.rv", .{module_dir});
+    defer alloc.free(source_name);
+
+    const code =
+        \\ const mod = import "hot"
+        \\ mod.value
+    ;
+
+    var vm = try revo.VM.init(testing.runtime());
+    defer vm.deinit();
+    vm.module_dir = module_dir;
+
+    const artifact = switch (try lang.build(&vm, .{ .name = source_name, .text = code }, .{})) {
+        .ok => |ok| ok,
+        .err => |lang_err| {
+            defer lang.deinitError(alloc, lang_err);
+            return error.ParseError;
+        },
+    };
+    defer vm.runtime.alloc.free(artifact.instructions);
+    defer vm.runtime.alloc.free(artifact.spans);
+
+    _ = try runCompiledSessionReport(&vm, source_name, artifact.instructions);
+    try std.testing.expectEqual(Data.new.num(1), vm.mainResult());
+
+    try tmp.dir.writeFile(std.testing.io, .{
+        .sub_path = "hot.rv",
+        .data =
+        \\ pub const value = 2
+        ,
+    });
+
+    _ = try runCompiledSessionReport(&vm, source_name, artifact.instructions);
+    try std.testing.expectEqual(Data.new.num(2), vm.mainResult());
+}

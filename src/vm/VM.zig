@@ -14,10 +14,14 @@ pub const VM = @This();
 pub const Globals = std.AutoHashMap(GlobalID, Data);
 pub const ConstGlobals = std.AutoHashMap(GlobalID, void);
 
+pub const ModuleStamp = struct {
+    mtime: u64,
+    size: usize,
+};
+
 pub const ModuleCache = std.StringHashMap(struct {
     result: Data,
-    loaded: bool,
-    pending: bool,
+    stamp: ModuleStamp,
 });
 
 pub const FiberID = usize;
@@ -371,8 +375,31 @@ pub fn deinit(self: *VM) void {
             lib.close();
     }
     self.loaded_extensions.deinit(self.runtime.alloc);
-
     self.gc_mark_stack.deinit(self.runtime.alloc);
+}
+
+pub fn moduleStamp(self: *VM, path: []const u8) !ModuleStamp {
+    const stat = std.Io.Dir.cwd().statFile(self.runtime.io, path, .{}) catch |err| {
+        return err;
+    };
+    return .{
+        .mtime = @intCast(stat.mtime.toNanoseconds()),
+        .size = stat.size,
+    };
+}
+
+pub fn invalidateModuleCache(self: *VM, path: []const u8) bool {
+    if (self.module_cache.fetchRemove(path)) |entry| {
+        self.runtime.alloc.free(entry.key);
+        return true;
+    }
+    return false;
+}
+
+pub fn clearModuleCache(self: *VM) void {
+    var it = self.module_cache.iterator();
+    while (it.next()) |entry| self.runtime.alloc.free(entry.key_ptr.*);
+    self.module_cache.clearRetainingCapacity();
 }
 
 pub fn addConstant(self: *VM, val: Data) !ConstantID {
@@ -1112,6 +1139,7 @@ fn callNonClosureFunction(
                 c_args.ptr,
                 &c_result,
             );
+            try self.ensureAbsoluteSlot(base + instr.c);
             try self.writeRegisterFast(
                 base,
                 instr.c,
@@ -1182,11 +1210,10 @@ fn callNonClosureFunction(
             };
 
             switch (result) {
-                .ok => |data| try self.writeRegisterFast(
-                    base,
-                    instr.c,
-                    data,
-                ),
+                .ok => |data| {
+                    try self.ensureAbsoluteSlot(base + instr.c);
+                    try self.writeRegisterFast(base, instr.c, data);
+                },
                 .err => |err| {
                     switch (err) {
                         .wrong_arity => |info| {
@@ -1226,6 +1253,7 @@ fn callNonClosureFunction(
                             self.currentFiber().parked_result_slot = try self.absoluteRegisterIndex(
                                 instr.c,
                             );
+                            try self.ensureAbsoluteSlot(base + instr.c);
                             try self.writeRegisterFast(
                                 base,
                                 instr.c,
@@ -1393,6 +1421,7 @@ fn callRegister(
                 callee,
                 args,
             );
+            try self.ensureAbsoluteSlot(base + instr.c);
             try self.writeRegisterFast(
                 base,
                 instr.c,
@@ -1542,11 +1571,8 @@ fn callStructConstructor(
         }
     }
 
-    try self.writeRegisterFast(
-        base,
-        instr.c,
-        Data.new.structVal(instance_id),
-    );
+    try self.ensureAbsoluteSlot(base + instr.c);
+    try self.writeRegisterFast(base, instr.c, Data.new.structVal(instance_id));
 }
 
 fn structFieldValueMatches(

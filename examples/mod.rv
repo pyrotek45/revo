@@ -1,5 +1,8 @@
+# modules example
 # module import and caching
 const mod = import("mod/counter")
 mod.count = 41
 const same = import("mod/counter")
+print("same has", same)
 print(same.count)
+print(same.hidden == :undef)
