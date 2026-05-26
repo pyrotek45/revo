@@ -16,19 +16,18 @@ pub const StructField = struct {
 pub const StructDescriptor = struct {
     name: []const u8,
     fields: []const StructField,
+    field_index: std.AutoHashMap(memory.AtomID, usize),
     methods: std.StringHashMap(Data),
 
     pub fn deinit(self: *StructDescriptor, alloc: std.mem.Allocator) void {
         alloc.free(self.name);
         alloc.free(self.fields);
+        self.field_index.deinit();
         self.methods.deinit();
     }
 
     pub fn fieldIndex(self: *const StructDescriptor, name_atom: memory.AtomID) ?usize {
-        for (self.fields, 0..) |f, idx| {
-            if (f.name_atom == name_atom) return idx;
-        }
-        return null;
+        return self.field_index.get(name_atom);
     }
 };
 
@@ -46,9 +45,15 @@ pub const StructTypePool = struct {
     }
 
     pub fn registerType(self: *StructTypePool, name: []const u8, fields: []const StructField, methods: std.StringHashMap(Data)) !StructTypeID {
+        var field_index = std.AutoHashMap(memory.AtomID, usize).init(self.alloc);
+        errdefer field_index.deinit();
+        for (fields, 0..) |f, idx| {
+            try field_index.put(f.name_atom, idx);
+        }
         const desc = StructDescriptor{
             .name = try self.alloc.dupe(u8, name),
             .fields = try self.alloc.dupe(StructField, fields),
+            .field_index = field_index,
             .methods = methods,
         };
         const id: StructTypeID = self.types.items.len;
