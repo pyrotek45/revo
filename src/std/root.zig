@@ -509,11 +509,11 @@ pub fn range_(args: []const Data, vm: *VM) !NativeResult {
 }
 
 fn expect_number(data: Data) ?f64 {
-    return data.asNumber();
+    return data.asNum();
 }
 
 fn as_stack_index(value: Data) ?usize {
-    const num = value.asNumber() orelse return null;
+    const num = value.asNum() orelse return null;
     // SAFETY: asIndex returns null for non-integer/out-of-range numbers
     return revo.asIndex(num) catch null;
 }
@@ -547,7 +547,7 @@ pub fn chan_send(args: []const Data, vm: *VM) !NativeResult {
     const chan_atom = try vm.internAtom("chan");
     if (t.items[0].asAtom() != chan_atom)
         return .errType(0, "chan tuple", "tuple");
-    const chan_id = t.items[1].asNumber() orelse return .errType(0, "chan tuple", "tuple");
+    const chan_id = t.items[1].asNum() orelse return .errType(0, "chan tuple", "tuple");
     const cid: revo.vm.ChannelID = @intFromFloat(chan_id);
     try vm.sched.channelSend(cid, args[1]);
     return okAtom(vm);
@@ -562,7 +562,7 @@ pub fn chan_recv(args: []const Data, vm: *VM) !NativeResult {
     const chan_atom = try vm.internAtom("chan");
     if (t.items[0].asAtom() != chan_atom)
         return .errType(0, "chan tuple", "tuple");
-    const chan_id = t.items[1].asNumber() orelse return .errType(0, "chan tuple", "tuple");
+    const chan_id = t.items[1].asNum() orelse return .errType(0, "chan tuple", "tuple");
     const cid: revo.vm.ChannelID = @intFromFloat(chan_id);
     const recv_result = try vm.sched.channelRecv(cid);
     if (recv_result) |value| return .{ .ok = value };
@@ -921,7 +921,7 @@ pub fn call_unary_metamethod(mm: Data, val: Data, vm: *VM) NativeResult {
 /// sleeps current fiber for given milliseconds
 /// parks fiber instead of blocking
 pub fn sleep(args: []const Data, vm: *VM) !NativeResult {
-    const n = args[0].asNumber() orelse return .errType(0, "number", dataToString(args[0]));
+    const n = args[0].asNum() orelse return .errType(0, "number", dataToString(args[0]));
     const ms: u64 = blk: {
         if (!std.math.isFinite(n) or n < 0 or @floor(n) != n) return .errType(0, "non-negative integer", dataToString(args[0]));
         break :blk @as(u64, @intFromFloat(n));
@@ -959,42 +959,10 @@ pub fn registerMetatable(
     try vm.setMetatable(prototype, mt_id);
 }
 
-pub const NativeError = error{
-    StackUnderflow,
-    KeyDNE,
-    StackOverflow,
-    InvalidConstant,
-    InvalidLocal,
-    ConstantReassignment,
-    WrongArity,
-    TypeError,
-    IncompatibleTypes,
-    DivisionByZero,
-    UndefinedVariable,
-    NotAFunction,
-    FrameUnderflow,
-    PickedFromVoid,
-    FunctionDNE,
-    InvalidTable,
-    InvalidTuple,
-    ProgramEnd,
-    Panic,
-    AssertionFailed,
-    OutOfMemory,
-    mystery,
-    ModuleNotFound,
-    IoError,
-    CyclicImport,
-    ImportFailed,
-    InvalidChannel,
-    Parked,
-    InvalidBytecode,
-};
-
 pub const NativeErrPayload = union(enum) {
     wrong_arity: struct { got: usize, expected: usize },
     type_error: struct { arg: ?usize, expected: []const u8, got: []const u8 },
-    native_error: NativeError,
+    native_error: revo.vm.NativeError,
     parked: void,
     other: []const u8,
 };

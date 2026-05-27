@@ -4,6 +4,38 @@ const revo = @import("revo");
 const diagnostic = revo.lang.diagnostic;
 const Span = revo.lang.ast.Span;
 
+pub const NativeError = error{
+    StackUnderflow,
+    KeyDNE,
+    StackOverflow,
+    InvalidConstant,
+    InvalidLocal,
+    ConstantReassignment,
+    WrongArity,
+    TypeError,
+    IncompatibleTypes,
+    DivisionByZero,
+    UndefinedVariable,
+    NotAFunction,
+    FrameUnderflow,
+    PickedFromVoid,
+    FunctionDNE,
+    InvalidTable,
+    InvalidTuple,
+    ProgramEnd,
+    Panic,
+    AssertionFailed,
+    OutOfMemory,
+    mystery,
+    ModuleNotFound,
+    IoError,
+    CyclicImport,
+    ImportFailed,
+    InvalidChannel,
+    Parked,
+    InvalidBytecode,
+};
+
 pub const EvalErrorKind = enum {
     StackUnderflow,
     StackOverflow,

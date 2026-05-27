@@ -195,7 +195,7 @@ pub const Table = struct {
     }
 
     fn integerArrayIndex(key: Data) ?usize {
-        const n = key.asNumber() orelse return null;
+        const n = key.asNum() orelse return null;
         return if (n < 0 or !std.math.isFinite(n) or @floor(n) != n) null else @as(usize, @intFromFloat(n));
     }
 

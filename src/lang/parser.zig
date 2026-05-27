@@ -1292,7 +1292,7 @@ const Parser = struct {
     }
 
     fn desugarPipe(self: *Parser, left: *Node, right: *Node) anyerror!*Node {
-        if (hasUnderscore(right)) return self.wrapPipeLexical(left, right);
+        if (ast.hasUnderscore(right)) return self.wrapPipeLexical(left, right);
 
         return switch (right.expr) {
             .ident, .fn_expr => {
@@ -1365,26 +1365,6 @@ const Parser = struct {
         return self.allocExpr(Span.merge(left.span, right.span), .{ .block = exprs });
     }
 };
-
-const UnderscoreVisitor = struct {
-    found: bool = false,
-
-    pub fn visit(self: *UnderscoreVisitor, node: *const Node) void {
-        if (self.found) return;
-        switch (node.expr) {
-            .ident => |name| {
-                if (std.mem.eql(u8, name, "_")) self.found = true;
-            },
-            else => ast.walkAST(UnderscoreVisitor, self, node),
-        }
-    }
-};
-
-fn hasUnderscore(node: *const Node) bool {
-    var visitor = UnderscoreVisitor{};
-    visitor.visit(node);
-    return visitor.found;
-}
 
 const pipe_temp_name = "_";
 

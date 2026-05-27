@@ -42,7 +42,7 @@ fn len(args: []const Data, vm: *VM) !NativeResult {
 
 fn index(args: []const Data, vm: *VM) !NativeResult {
     const id = args[0].asTuple() orelse return .errType(0, "tuple", root.dataToString(args[0]));
-    const n = args[1].asNumber() orelse return .errType(1, "number", root.dataToString(args[1]));
+    const n = args[1].asNum() orelse return .errType(1, "number", root.dataToString(args[1]));
     const idx = try revo.asIndex(n);
     const t = try vm.tuples.get(id);
     if (idx >= t.items.len) return .{ .ok = revo.core_atoms.data(.missing) };
@@ -63,7 +63,7 @@ fn add(args: []const Data, vm: *VM) !NativeResult {
 
 fn mul(args: []const Data, vm: *VM) !NativeResult {
     const tuple_id = args[0].asTuple() orelse return .errType(0, "tuple", root.dataToString(args[0]));
-    const n = args[1].asNumber() orelse return .errType(1, "number", root.dataToString(args[1]));
+    const n = args[1].asNum() orelse return .errType(1, "number", root.dataToString(args[1]));
     const times = @as(i64, @intFromFloat(n));
     if (times < 0) return .errType(1, "non-negative number", "negative number");
     const tuple = try vm.tuples.get(tuple_id);

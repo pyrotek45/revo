@@ -134,5 +134,5 @@ test "math library" {
 
 // .number is guaranteed by type sig
 inline fn toF64(d: Data) f64 {
-    return d.asNumber().?;
+    return d.asNum().?;
 }

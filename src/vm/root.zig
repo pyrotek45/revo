@@ -2,6 +2,7 @@ pub const bytecode = @import("bytecode.zig");
 pub const ChannelID = @import("VM.zig").ChannelID;
 pub const ConstantID = @import("VM.zig").ConstantID;
 pub const debug = @import("debug.zig");
+pub const NativeError = @import("debug.zig").NativeError;
 pub const EvalErrorKind = @import("debug.zig").EvalErrorKind;
 pub const EvalFailure = @import("debug.zig").EvalFailure;
 pub const EvalResult = @import("debug.zig").EvalResult;

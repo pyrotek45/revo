@@ -17,7 +17,7 @@ pub fn toRegister(n: usize) !Register {
 }
 
 pub fn @"const"(self: *Compiler, v: Data) !void {
-    if (v.asNumber()) |n| {
+    if (v.asNum()) |n| {
         if (n >= 0 and n <= 65535 and @trunc(n) == n) return smi(self, @intFromFloat(n));
     }
     const idx = try self.vm.addConstant(v);
@@ -29,7 +29,7 @@ pub fn @"const"(self: *Compiler, v: Data) !void {
 
     if (self.ir_ctx) |*ctx| {
         const m: ?revo.lang.compiler.ir.IrInst.IrMetadata = switch (v.tag()) {
-            .number => .{ .float_value = v.asNumber().? },
+            .number => .{ .float_value = v.asNum().? },
             .string => .{ .string_value = self.vm.stringValue(v.asString().?) },
             .atom => .{ .int_value = @intCast(v.asAtom().?) },
             else => .none,

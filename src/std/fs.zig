@@ -75,7 +75,7 @@ fn kindName(kind: File.Kind) []const u8 {
 fn parsePermissions(vm: *VM, value: Data) !File.Permissions {
     switch (value.tag()) {
         .number => {
-            const n = value.asNumber().?;
+            const n = value.asNum().?;
             if (!std.math.isFinite(n) or @floor(n) != n) return error.InvalidPermissions;
             const raw: PermTag = @intFromFloat(n);
             return @as(File.Permissions, @enumFromInt(raw));

@@ -843,7 +843,7 @@ const UnderscoreVisitor = struct {
     }
 };
 
-fn hasUnderscore(node: *const Node) bool {
+pub fn hasUnderscore(node: *const Node) bool {
     var visitor = UnderscoreVisitor{};
     visitor.visit(node);
     return visitor.found;
@@ -873,3 +873,185 @@ pub const NumberLiteral = struct {
     value: f64,
     is_float: bool = false,
 };
+
+pub fn allocNode(allocator: std.mem.Allocator, span: Span, expr: Expr) !*Node {
+    const node = try allocator.create(Node);
+    node.* = .{ .span = span, .expr = expr };
+    return node;
+}
+
+pub fn walkSliceWith(
+    allocator: std.mem.Allocator,
+    items: []const *Node,
+    comptime Transform: type,
+    ctx: Transform,
+) ![]*Node {
+    var out = try std.ArrayList(*Node).initCapacity(allocator, items.len);
+    for (items) |item| try out.append(allocator, try ctx.walk(allocator, @constCast(item), ctx));
+    return out.toOwnedSlice(allocator);
+}
+
+fn walkMatch(
+    allocator: std.mem.Allocator,
+    span: Span,
+    match_expr: anytype,
+    comptime Transform: type,
+    ctx: Transform,
+) !*Node {
+    var arms = try std.ArrayList(MatchArm).initCapacity(allocator, match_expr.arms.len);
+    for (match_expr.arms) |arm| {
+        var matchers = try std.ArrayList(MatchMatcher).initCapacity(allocator, arm.matchers.len);
+        for (arm.matchers) |matcher| {
+            switch (matcher) {
+                .wildcard => try matchers.append(allocator, .wildcard),
+                .expr => |v| try matchers.append(allocator, .{ .expr = try ctx.walk(allocator, v, ctx) }),
+            }
+        }
+        try arms.append(allocator, .{
+            .matchers = try matchers.toOwnedSlice(allocator),
+            .guard = if (arm.guard) |g| try ctx.walk(allocator, g, ctx) else null,
+            .then = try ctx.walk(allocator, arm.then, ctx),
+        });
+    }
+    return allocNode(allocator, span, .{ .match_expr = .{
+        .subject = try ctx.walk(allocator, match_expr.subject, ctx),
+        .arms = try arms.toOwnedSlice(allocator),
+    } });
+}
+
+fn walkTable(
+    allocator: std.mem.Allocator,
+    span: Span,
+    entries: []const TableEntry,
+    comptime Transform: type,
+    ctx: Transform,
+) !*Node {
+    var out = try std.ArrayList(TableEntry).initCapacity(allocator, entries.len);
+    for (entries) |entry| {
+        try out.append(allocator, .{
+            .key = if (entry.key) |k| try ctx.walk(allocator, k, ctx) else null,
+            .computed = entry.computed,
+            .value = try ctx.walk(allocator, entry.value, ctx),
+        });
+    }
+    return allocNode(allocator, span, .{ .table = try out.toOwnedSlice(allocator) });
+}
+
+pub fn walkExpr(
+    allocator: std.mem.Allocator,
+    expr: *Node,
+    comptime Transform: type,
+    ctx: Transform,
+) !*Node {
+    return switch (expr.expr) {
+        .unary => |v| allocNode(allocator, expr.span, .{ .unary = .{
+            .op = v.op,
+            .expr = try ctx.walk(allocator, v.expr, ctx),
+        } }),
+        .binary => |v| allocNode(allocator, expr.span, .{ .binary = .{
+            .op = v.op,
+            .left = try ctx.walk(allocator, v.left, ctx),
+            .right = try ctx.walk(allocator, v.right, ctx),
+        } }),
+        .and_expr => |v| allocNode(allocator, expr.span, .{ .and_expr = .{
+            .left = try ctx.walk(allocator, v.left, ctx),
+            .right = try ctx.walk(allocator, v.right, ctx),
+        } }),
+        .or_expr => |v| allocNode(allocator, expr.span, .{ .or_expr = .{
+            .left = try ctx.walk(allocator, v.left, ctx),
+            .right = try ctx.walk(allocator, v.right, ctx),
+        } }),
+        .field => |v| allocNode(allocator, expr.span, .{ .field = .{
+            .object = try ctx.walk(allocator, v.object, ctx),
+            .name = v.name,
+        } }),
+        .index => |v| allocNode(allocator, expr.span, .{ .index = .{
+            .object = try ctx.walk(allocator, v.object, ctx),
+            .key = try ctx.walk(allocator, v.key, ctx),
+        } }),
+        .if_expr => |v| allocNode(allocator, expr.span, .{ .if_expr = .{
+            .condition = try ctx.walk(allocator, v.condition, ctx),
+            .then_expr = try ctx.walk(allocator, v.then_expr, ctx),
+            .else_expr = if (v.else_expr) |e| try ctx.walk(allocator, e, ctx) else null,
+        } }),
+        .fn_expr => |v| allocNode(allocator, expr.span, .{ .fn_expr = .{
+            .params = v.params,
+            .return_type = v.return_type,
+            .body = try ctx.walk(allocator, v.body, ctx),
+        } }),
+        .loop_expr => |v| allocNode(allocator, expr.span, .{ .loop_expr = .{
+            .body = try ctx.walk(allocator, v.body, ctx),
+        } }),
+        .for_loop => |v| allocNode(allocator, expr.span, .{ .for_loop = .{
+            .params = v.params,
+            .iter = try ctx.walk(allocator, v.iter, ctx),
+            .body = try ctx.walk(allocator, v.body, ctx),
+        } }),
+        .while_loop => |v| allocNode(allocator, expr.span, .{ .while_loop = .{
+            .predicate = v.predicate,
+            .body = try ctx.walk(allocator, v.body, ctx),
+        } }),
+        .break_expr => |v| allocNode(allocator, expr.span, .{
+            .break_expr = if (v) |inner| try ctx.walk(allocator, inner, ctx) else null,
+        }),
+        .return_expr => |v| allocNode(allocator, expr.span, .{
+            .return_expr = if (v) |inner| try ctx.walk(allocator, inner, ctx) else null,
+        }),
+        .import_expr => |v| allocNode(allocator, expr.span, .{
+            .import_expr = try ctx.walk(allocator, v, ctx),
+        }),
+        .mod_expr => |v| allocNode(allocator, expr.span, .{ .mod_expr = .{
+            .name = v.name,
+            .body = try ctx.walk(allocator, v.body, ctx),
+            .is_pub = v.is_pub,
+        } }),
+        .comp_block => |cb| allocNode(allocator, expr.span, .{ .comp_block = .{
+            .expr = try ctx.walk(allocator, cb.expr, ctx),
+            .is_macro = cb.is_macro,
+        } }),
+        .assign_expr => |v| allocNode(allocator, expr.span, .{ .assign_expr = .{
+            .target = try ctx.walk(allocator, v.target, ctx),
+            .value = try ctx.walk(allocator, v.value, ctx),
+        } }),
+        .let_expr => |v| allocNode(allocator, expr.span, .{ .let_expr = .{
+            .target = try ctx.walk(allocator, v.target, ctx),
+            .type_name = v.type_name,
+            .value = try ctx.walk(allocator, v.value, ctx),
+            .is_pub = v.is_pub,
+        } }),
+        .con_expr => |v| allocNode(allocator, expr.span, .{ .con_expr = .{
+            .target = try ctx.walk(allocator, v.target, ctx),
+            .type_name = v.type_name,
+            .value = try ctx.walk(allocator, v.value, ctx),
+            .is_pub = v.is_pub,
+        } }),
+        .global => |v| allocNode(allocator, expr.span, .{ .global = .{
+            .target = try ctx.walk(allocator, v.target, ctx),
+            .type_name = v.type_name,
+            .value = try ctx.walk(allocator, v.value, ctx),
+            .is_pub = v.is_pub,
+        } }),
+        .tuple => |items| allocNode(allocator, expr.span, .{
+            .tuple = try walkSliceWith(allocator, items, Transform, ctx),
+        }),
+        .tuple_pattern => |items| allocNode(allocator, expr.span, .{
+            .tuple_pattern = try walkSliceWith(allocator, items, Transform, ctx),
+        }),
+        .block => |items| allocNode(allocator, expr.span, .{
+            .block = try walkSliceWith(allocator, items, Transform, ctx),
+        }),
+        .call => |v| allocNode(allocator, expr.span, .{ .call = .{
+            .callee = try ctx.walk(allocator, v.callee, ctx),
+            .args = try walkSliceWith(allocator, v.args, Transform, ctx),
+            .implicit_self = v.implicit_self,
+        } }),
+        .proc_macro => |pm| allocNode(allocator, expr.span, .{ .proc_macro = .{
+            .name = pm.name,
+            .param = pm.param,
+            .body = try ctx.walk(allocator, pm.body, ctx),
+        } }),
+        .match_expr => |v| walkMatch(allocator, expr.span, v, Transform, ctx),
+        .table => |entries| walkTable(allocator, expr.span, entries, Transform, ctx),
+        else => expr,
+    };
+}

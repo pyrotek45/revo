@@ -100,8 +100,8 @@ fn expandInEnv(
         .block => |items| blk: {
             var child = try env.clone();
             defer child.deinit();
-            break :blk alloc(allocator, expr.span, .{
-                .block = try walkSliceWith(allocator, items, ProcCtx, .{ .vm = vm, .env = &child, .mode = mode }),
+            break :blk ast.allocNode(allocator, expr.span, .{
+                .block = try ast.walkSliceWith(allocator, items, ProcCtx, .{ .vm = vm, .env = &child, .mode = mode }),
             });
         },
         .con_expr => |binding| expandBinding(vm, allocator, expr.span, binding, env, mode),
@@ -113,9 +113,9 @@ fn expandInEnv(
                 .param = pm.param,
                 .body = body,
             });
-            break :blk alloc(allocator, expr.span, .nil);
+            break :blk ast.allocNode(allocator, expr.span, .nil);
         },
-        else => walkExpr(allocator, expr, ProcCtx, .{ .vm = vm, .env = env, .mode = mode }),
+        else => ast.walkExpr(allocator, expr, ProcCtx, .{ .vm = vm, .env = env, .mode = mode }),
     };
 }
 
@@ -142,10 +142,10 @@ fn expandBinding(
             .param = binding.value.expr.proc_macro.param,
             .body = proc_body,
         });
-        return alloc(allocator, span, .nil);
+        return ast.allocNode(allocator, span, .nil);
     }
 
-    return alloc(allocator, span, .{ .con_expr = .{
+    return ast.allocNode(allocator, span, .{ .con_expr = .{
         .target = try expandInEnv(vm, allocator, binding.target, env, mode),
         .type_name = binding.type_name,
         .value = try expandInEnv(vm, allocator, binding.value, env, mode),
@@ -164,7 +164,7 @@ fn maybeExpandCall(
     mode: ProcMode,
 ) ExpandError!*Node {
     const expanded_callee = try expandInEnv(vm, allocator, callee, env, mode);
-    const expanded_args = try walkSliceWith(allocator, args, ProcCtx, .{ .vm = vm, .env = env, .mode = mode });
+    const expanded_args = try ast.walkSliceWith(allocator, args, ProcCtx, .{ .vm = vm, .env = env, .mode = mode });
 
     if (expanded_callee.expr == .ident) {
         if (env.map.get(expanded_callee.expr.ident)) |def| {
@@ -176,7 +176,7 @@ fn maybeExpandCall(
         }
     }
 
-    return alloc(allocator, span, .{ .call = .{
+    return ast.allocNode(allocator, span, .{ .call = .{
         .callee = expanded_callee,
         .args = expanded_args,
         .implicit_self = implicit_self,
@@ -188,180 +188,17 @@ const ProcCtx = struct {
     env: *ProcEnv,
     mode: ProcMode,
 
-    fn walk(self: ProcCtx, allocator: std.mem.Allocator, expr: *Node, _: ProcCtx) ExpandError!*Node {
+    pub fn walk(self: ProcCtx, allocator: std.mem.Allocator, expr: *Node, _: ProcCtx) ExpandError!*Node {
         return expandInEnv(self.vm, allocator, expr, self.env, self.mode);
     }
 
-    fn walkSlice(self: ProcCtx, allocator: std.mem.Allocator, items: []const *Node, _: ProcCtx) ExpandError![]*Node {
-        return walkSliceWith(allocator, items, ProcCtx, self);
+    pub fn walkSlice(self: ProcCtx, allocator: std.mem.Allocator, items: []const *Node, _: ProcCtx) ExpandError![]*Node {
+        return ast.walkSliceWith(allocator, items, ProcCtx, self);
     }
 };
 
 /// could not for my life figure out how to comptimeize further
-fn walkExpr(
-    allocator: std.mem.Allocator,
-    expr: *Node,
-    comptime Transform: type,
-    ctx: Transform,
-) ExpandError!*Node {
-    return switch (expr.expr) {
-        .unary => |v| alloc(allocator, expr.span, .{ .unary = .{
-            .op = v.op,
-            .expr = try ctx.walk(allocator, v.expr, ctx),
-        } }),
-        .binary => |v| alloc(allocator, expr.span, .{ .binary = .{
-            .op = v.op,
-            .left = try ctx.walk(allocator, v.left, ctx),
-            .right = try ctx.walk(allocator, v.right, ctx),
-        } }),
-        .and_expr => |v| alloc(allocator, expr.span, .{ .and_expr = .{
-            .left = try ctx.walk(allocator, v.left, ctx),
-            .right = try ctx.walk(allocator, v.right, ctx),
-        } }),
-        .or_expr => |v| alloc(allocator, expr.span, .{ .or_expr = .{
-            .left = try ctx.walk(allocator, v.left, ctx),
-            .right = try ctx.walk(allocator, v.right, ctx),
-        } }),
-        .field => |v| alloc(allocator, expr.span, .{ .field = .{
-            .object = try ctx.walk(allocator, v.object, ctx),
-            .name = v.name,
-        } }),
-        .index => |v| alloc(allocator, expr.span, .{ .index = .{
-            .object = try ctx.walk(allocator, v.object, ctx),
-            .key = try ctx.walk(allocator, v.key, ctx),
-        } }),
-        .if_expr => |v| alloc(allocator, expr.span, .{ .if_expr = .{
-            .condition = try ctx.walk(allocator, v.condition, ctx),
-            .then_expr = try ctx.walk(allocator, v.then_expr, ctx),
-            .else_expr = if (v.else_expr) |e| try ctx.walk(allocator, e, ctx) else null,
-        } }),
-        .fn_expr => |v| alloc(allocator, expr.span, .{ .fn_expr = .{
-            .params = v.params,
-            .return_type = v.return_type,
-            .body = try ctx.walk(allocator, v.body, ctx),
-        } }),
-        .loop_expr => |v| alloc(allocator, expr.span, .{ .loop_expr = .{
-            .body = try ctx.walk(allocator, v.body, ctx),
-        } }),
-        .for_loop => |v| alloc(allocator, expr.span, .{ .for_loop = .{
-            .params = v.params,
-            .iter = try ctx.walk(allocator, v.iter, ctx),
-            .body = try ctx.walk(allocator, v.body, ctx),
-        } }),
-        .while_loop => |v| alloc(allocator, expr.span, .{ .while_loop = .{
-            .predicate = v.predicate,
-            .body = try ctx.walk(allocator, v.body, ctx),
-        } }),
-        .break_expr => |v| alloc(allocator, expr.span, .{
-            .break_expr = if (v) |inner| try ctx.walk(allocator, inner, ctx) else null,
-        }),
-        .return_expr => |v| alloc(allocator, expr.span, .{
-            .return_expr = if (v) |inner| try ctx.walk(allocator, inner, ctx) else null,
-        }),
-        .import_expr => |v| alloc(allocator, expr.span, .{
-            .import_expr = try ctx.walk(allocator, v, ctx),
-        }),
-        .comp_block => |cb| alloc(allocator, expr.span, .{ .comp_block = .{
-            .expr = try ctx.walk(allocator, cb.expr, ctx),
-            .is_macro = cb.is_macro,
-        } }),
-        .assign_expr => |v| alloc(allocator, expr.span, .{ .assign_expr = .{
-            .target = try ctx.walk(allocator, v.target, ctx),
-            .value = try ctx.walk(allocator, v.value, ctx),
-        } }),
-        .let_expr => |v| alloc(allocator, expr.span, .{ .let_expr = .{
-            .target = try ctx.walk(allocator, v.target, ctx),
-            .type_name = v.type_name,
-            .value = try ctx.walk(allocator, v.value, ctx),
-            .is_pub = v.is_pub,
-        } }),
-        .con_expr => |v| alloc(allocator, expr.span, .{ .con_expr = .{
-            .target = try ctx.walk(allocator, v.target, ctx),
-            .type_name = v.type_name,
-            .value = try ctx.walk(allocator, v.value, ctx),
-            .is_pub = v.is_pub,
-        } }),
-        .global => |v| alloc(allocator, expr.span, .{ .global = .{
-            .target = try ctx.walk(allocator, v.target, ctx),
-            .type_name = v.type_name,
-            .value = try ctx.walk(allocator, v.value, ctx),
-            .is_pub = v.is_pub,
-        } }),
-        .tuple => |items| alloc(allocator, expr.span, .{ .tuple = try ctx.walkSlice(allocator, items, ctx) }),
-        .tuple_pattern => |items| alloc(allocator, expr.span, .{ .tuple_pattern = try ctx.walkSlice(allocator, items, ctx) }),
-        .block => |items| alloc(allocator, expr.span, .{ .block = try ctx.walkSlice(allocator, items, ctx) }),
-        .call => |v| alloc(allocator, expr.span, .{ .call = .{
-            .callee = try ctx.walk(allocator, v.callee, ctx),
-            .args = try ctx.walkSlice(allocator, v.args, ctx),
-            .implicit_self = v.implicit_self,
-        } }),
-        .match_expr => |v| walkMatch(allocator, expr.span, v, Transform, ctx),
-        .table => |entries| walkTable(allocator, expr.span, entries, Transform, ctx),
-        .proc_macro => |pm| alloc(allocator, expr.span, .{ .proc_macro = .{
-            .name = pm.name,
-            .param = pm.param,
-            .body = try ctx.walk(allocator, pm.body, ctx),
-        } }),
-        else => expr,
-    };
-}
-
-fn walkMatch(
-    allocator: std.mem.Allocator,
-    span: Span,
-    match_expr: anytype,
-    comptime Transform: type,
-    ctx: Transform,
-) ExpandError!*Node {
-    var arms = try std.ArrayList(ast.MatchArm).initCapacity(allocator, match_expr.arms.len);
-    for (match_expr.arms) |arm| {
-        var matchers = try std.ArrayList(ast.MatchMatcher).initCapacity(allocator, arm.matchers.len);
-        for (arm.matchers) |matcher| {
-            switch (matcher) {
-                .wildcard => try matchers.append(allocator, .wildcard),
-                .expr => |v| try matchers.append(allocator, .{ .expr = try ctx.walk(allocator, v, ctx) }),
-            }
-        }
-        try arms.append(allocator, .{
-            .matchers = try matchers.toOwnedSlice(allocator),
-            .guard = if (arm.guard) |g| try ctx.walk(allocator, g, ctx) else null,
-            .then = try ctx.walk(allocator, arm.then, ctx),
-        });
-    }
-    return alloc(allocator, span, .{ .match_expr = .{
-        .subject = try ctx.walk(allocator, match_expr.subject, ctx),
-        .arms = try arms.toOwnedSlice(allocator),
-    } });
-}
-
-fn walkTable(
-    allocator: std.mem.Allocator,
-    span: Span,
-    entries: []const ast.TableEntry,
-    comptime Transform: type,
-    ctx: Transform,
-) ExpandError!*Node {
-    var out = try std.ArrayList(ast.TableEntry).initCapacity(allocator, entries.len);
-    for (entries) |entry| {
-        try out.append(allocator, .{
-            .key = if (entry.key) |k| try ctx.walk(allocator, k, ctx) else null,
-            .computed = entry.computed,
-            .value = try ctx.walk(allocator, entry.value, ctx),
-        });
-    }
-    return alloc(allocator, span, .{ .table = try out.toOwnedSlice(allocator) });
-}
-
-fn walkSliceWith(
-    allocator: std.mem.Allocator,
-    items: []const *Node,
-    comptime Transform: type,
-    ctx: Transform,
-) ExpandError![]*Node {
-    var out = try std.ArrayList(*Node).initCapacity(allocator, items.len);
-    for (items) |item| try out.append(allocator, try ctx.walk(allocator, @constCast(item), ctx));
-    return out.toOwnedSlice(allocator);
-}
+//
 
 fn evalProcMacro(
     vm: *revo.VM,
@@ -485,7 +322,7 @@ fn reportProcExpandError(
 
 fn decodeProcResult(vm: *revo.VM, allocator: std.mem.Allocator, span: Span, data: Data) ExpandError!*Node {
     if (data.asAtom()) |atom| {
-        return if (atom == revo.core_atoms.atom_id(.nil)) alloc(allocator, span, .nil) else error.InvalidProcReturn;
+        return if (atom == revo.core_atoms.atom_id(.nil)) ast.allocNode(allocator, span, .nil) else error.InvalidProcReturn;
     }
     if (data.asTuple()) |tid| {
         return decodeNodeSequence(vm, allocator, span, (vm.tuples.get(tid) catch return error.InvalidProcReturn).items);
@@ -502,14 +339,14 @@ fn decodeNodeSequence(
     span: Span,
     items: []const Data,
 ) ExpandError!*Node {
-    if (items.len == 0) return alloc(allocator, span, .nil);
+    if (items.len == 0) return ast.allocNode(allocator, span, .nil);
 
     var out = try std.ArrayList(*Node).initCapacity(allocator, items.len);
     errdefer out.deinit(allocator);
     for (items) |item| try out.append(allocator, try decodeExprNode(vm, allocator, span, item));
 
     if (out.items.len == 1) return out.items[0];
-    return alloc(allocator, span, .{ .block = try out.toOwnedSlice(allocator) });
+    return ast.allocNode(allocator, span, .{ .block = try out.toOwnedSlice(allocator) });
 }
 
 fn encodeExpr(allocator: std.mem.Allocator, node: *const Node) ExpandError!*Node {
@@ -517,7 +354,7 @@ fn encodeExpr(allocator: std.mem.Allocator, node: *const Node) ExpandError!*Node
         var items = try std.ArrayList(*Node).initCapacity(allocator, if (node.expr.number.is_float) 3 else 2);
         errdefer items.deinit(allocator);
         try items.append(allocator, try atomNode(allocator, node.span, "number"));
-        try items.append(allocator, try alloc(allocator, node.span, .{ .number = .{ .value = node.expr.number.value, .is_float = node.expr.number.is_float } }));
+        try items.append(allocator, try ast.allocNode(allocator, node.span, .{ .number = .{ .value = node.expr.number.value, .is_float = node.expr.number.is_float } }));
         if (node.expr.number.is_float) try items.append(allocator, try atomNode(allocator, node.span, "float"));
         return tupleNode(allocator, node.span, try items.toOwnedSlice(allocator));
     }
@@ -573,7 +410,7 @@ fn encodeValue(
     return switch (ti) {
         .pointer => |pi| {
             if (pi.size == .slice and pi.child == u8) {
-                return alloc(allocator, span, .{ .string = value });
+                return ast.allocNode(allocator, span, .{ .string = value });
             }
             if (pi.size == .slice) {
                 var items = try std.ArrayList(*Node).initCapacity(allocator, value.len);
@@ -591,13 +428,13 @@ fn encodeValue(
             if (value) |inner| {
                 return encodeValue(allocator, span, ti.optional.child, inner);
             } else {
-                return alloc(allocator, span, .nil);
+                return ast.allocNode(allocator, span, .nil);
             }
         },
         .bool => if (value) atomNode(allocator, span, "true") else atomNode(allocator, span, "false"),
-        .float => alloc(allocator, span, .{ .number = .{ .value = @floatCast(value), .is_float = true } }),
-        .int, .comptime_int => alloc(allocator, span, .{ .number = .{ .value = @floatFromInt(value) } }),
-        .comptime_float => alloc(allocator, span, .{ .number = .{ .value = value, .is_float = true } }),
+        .float => ast.allocNode(allocator, span, .{ .number = .{ .value = @floatCast(value), .is_float = true } }),
+        .int, .comptime_int => ast.allocNode(allocator, span, .{ .number = .{ .value = @floatFromInt(value) } }),
+        .comptime_float => ast.allocNode(allocator, span, .{ .number = .{ .value = value, .is_float = true } }),
         .@"enum" => atomNode(allocator, span, @tagName(value)),
 
         .@"union" => |ui| {
@@ -641,10 +478,10 @@ fn decodeExprNode(vm: *revo.VM, allocator: std.mem.Allocator, span: Span, data: 
 
     if (std.mem.eql(u8, tag, "number")) {
         if (tuple.items.len < 2) return error.InvalidProcReturn;
-        const value = tuple.items[1].asNumber() orelse return error.InvalidProcReturn;
+        const value = tuple.items[1].asNum() orelse return error.InvalidProcReturn;
         const is_float = tuple.items.len >= 3 and tuple.items[2].asAtom() != null and std.mem.eql(u8, vm.atomName(tuple.items[2].asAtom().?), "float");
         if (tuple.items.len != 2 and tuple.items.len != 3) return error.InvalidProcReturn;
-        return alloc(allocator, span, .{ .number = .{ .value = value, .is_float = is_float } });
+        return ast.allocNode(allocator, span, .{ .number = .{ .value = value, .is_float = is_float } });
     }
 
     const info = @typeInfo(Expr).@"union";
@@ -653,7 +490,7 @@ fn decodeExprNode(vm: *revo.VM, allocator: std.mem.Allocator, span: Span, data: 
             var idx: usize = 1;
             const payload = try decodePayload(vm, allocator, span, field.type, tuple.items, &idx);
             if (idx != tuple.items.len) return error.InvalidProcReturn;
-            return alloc(allocator, span, @unionInit(Expr, field.name, payload));
+            return ast.allocNode(allocator, span, @unionInit(Expr, field.name, payload));
         }
     }
     return error.InvalidProcReturn;
@@ -717,11 +554,11 @@ fn decodeValue(
         },
         // comptime numbers shouldnt appear unless i fold in parser
         .int => switch (data.tag()) {
-            .number => @as(T, @intFromFloat(data.asNumber().?)),
+            .number => @as(T, @intFromFloat(data.asNum().?)),
             else => error.InvalidProcReturn,
         },
         .float => switch (data.tag()) {
-            .number => data.asNumber().?,
+            .number => data.asNum().?,
             else => error.InvalidProcReturn,
         },
         .pointer => |ptr| {
@@ -871,18 +708,18 @@ fn tupleNode(allocator: std.mem.Allocator, span: Span, items: []const *Node) Exp
     var out = try std.ArrayList(*Node).initCapacity(allocator, items.len);
     errdefer out.deinit(allocator);
     for (items) |item| try out.append(allocator, @constCast(item));
-    return alloc(allocator, span, .{ .tuple = try out.toOwnedSlice(allocator) });
+    return ast.allocNode(allocator, span, .{ .tuple = try out.toOwnedSlice(allocator) });
 }
 
 fn listNode(allocator: std.mem.Allocator, span: Span, items: []const *Node) ExpandError!*Node {
     var out = try std.ArrayList(ast.TableEntry).initCapacity(allocator, items.len);
     errdefer out.deinit(allocator);
     for (items) |item| try out.append(allocator, .{ .key = null, .value = @constCast(item) });
-    return alloc(allocator, span, .{ .table = try out.toOwnedSlice(allocator) });
+    return ast.allocNode(allocator, span, .{ .table = try out.toOwnedSlice(allocator) });
 }
 
 fn identNode(allocator: std.mem.Allocator, span: Span, name: []const u8) ExpandError!*Node {
-    return alloc(allocator, span, .{ .ident = name });
+    return ast.allocNode(allocator, span, .{ .ident = name });
 }
 
 fn callNode(allocator: std.mem.Allocator, span: Span, callee: *Node, args: []const *Node) ExpandError!*Node {
@@ -899,7 +736,7 @@ fn callNodeWithSelf(
     var out = try std.ArrayList(*Node).initCapacity(allocator, args.len);
     errdefer out.deinit(allocator);
     for (args) |arg| try out.append(allocator, @constCast(arg));
-    return alloc(allocator, span, .{ .call = .{
+    return ast.allocNode(allocator, span, .{ .call = .{
         .callee = callee,
         .args = try out.toOwnedSlice(allocator),
         .implicit_self = implicit_self,
@@ -909,21 +746,16 @@ fn callNodeWithSelf(
 fn fnNode(allocator: std.mem.Allocator, span: Span, params: []const ast.FnParam, body: *Node) ExpandError!*Node {
     const copied = try allocator.alloc(ast.FnParam, params.len);
     @memcpy(copied, params);
-    return alloc(allocator, span, .{ .fn_expr = .{
+    return ast.allocNode(allocator, span, .{ .fn_expr = .{
         .params = copied,
         .body = body,
     } });
 }
 
 fn atomNode(allocator: std.mem.Allocator, span: Span, name: []const u8) ExpandError!*Node {
-    return alloc(allocator, span, .{ .hash = name });
+    return ast.allocNode(allocator, span, .{ .hash = name });
 }
 
-fn alloc(allocator: std.mem.Allocator, span: Span, expr: Expr) ExpandError!*Node {
-    const node = try allocator.create(Node);
-    node.* = .{ .span = span, .expr = expr };
-    return node;
-}
 
 fn iter(args: []const Data, vm: *revo.VM) !revo.std_lib.NativeResult {
     if (args.len != 1) return .errArity(args.len, 1);
@@ -1040,7 +872,7 @@ fn iterStep(args: []const Data, vm: *revo.VM, advance: bool) !revo.std_lib.Nativ
     const iter_tbl = try vm.tables.get(iter_id);
     const items_data = iter_tbl.getRaw(Data.new.atom(try vm.internAtom("items"))) orelse return .{ .ok = revo.core_atoms.data(.nil) };
     const index_data = iter_tbl.getRaw(Data.new.atom(try vm.internAtom("index"))) orelse Data.new.num(0);
-    const idx = if (index_data.asNumber()) |n| try revo.asIndex(n) else return error.TypeError;
+    const idx = if (index_data.asNum()) |n| try revo.asIndex(n) else return error.TypeError;
 
     const item = if (items_data.asTable()) |tid| blk: {
         const table = try vm.tables.get(tid);

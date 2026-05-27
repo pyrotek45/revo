@@ -146,10 +146,6 @@ pub const Data = struct {
         return @bitCast(self.bits);
     }
 
-    /// TODO: remove this
-    pub inline fn asNumber(self: Data) ?f64 {
-        return self.asNum();
-    }
     pub inline fn unboxed(self: Data) u64 {
         return @intCast(self.bits & PAYLOAD_MASK);
     }

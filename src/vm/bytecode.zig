@@ -59,7 +59,7 @@ fn serializeTuple(buffer: *std.ArrayList(u8), allocator: Allocator, vm: *VM, tid
     for (tuple.items) |item| {
         try writeIntLE(buffer, allocator, u8, @intFromEnum(item.tag()));
         switch (item.tag()) {
-            .number => try writeIntLE(buffer, allocator, u64, @bitCast(item.asNumber().?)),
+            .number => try writeIntLE(buffer, allocator, u64, @bitCast(item.asNum().?)),
             .string => {
                 const sid = item.asString().?;
                 const str = try vm.strings.get(sid);
@@ -122,7 +122,7 @@ pub fn serialize(vm: *VM, artifact: Artifact, allocator: Allocator) ![]u8 {
     for (vm.constants.items) |constant| {
         try writeIntLE(&buffer, allocator, u8, @intFromEnum(constant.tag()));
         switch (constant.tag()) {
-            .number => try writeIntLE(&buffer, allocator, u64, @bitCast(constant.asNumber().?)),
+            .number => try writeIntLE(&buffer, allocator, u64, @bitCast(constant.asNum().?)),
             .string => {
                 const sid = constant.asString().?;
                 const str = try vm.strings.get(sid);

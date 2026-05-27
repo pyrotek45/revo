@@ -77,7 +77,7 @@ pub fn register(vm: *VM) !void {
 fn set(args: []const Data, vm: *VM) !NativeResult {
     const str_handle = args[0].asString().?;
 
-    const idx: usize = if (args[1].asNumber()) |n| try revo.asIndex(n) else return .errType(1, "number", root.dataToString(args[1]));
+    const idx: usize = if (args[1].asNum()) |n| try revo.asIndex(n) else return .errType(1, "number", root.dataToString(args[1]));
 
     const existing_str = vm.stringValue(str_handle);
     if (idx >= existing_str.len) return .{ .ok = revo.core_atoms.data(.missing) };
@@ -87,7 +87,7 @@ fn set(args: []const Data, vm: *VM) !NativeResult {
             const s_val = vm.stringValue(s);
             if (s_val.len == 0) return .errType(2, "non-empty string", root.dataToString(args[2]));
             break :blk s_val[0];
-        } else if (args[2].asNumber()) |val| {
+        } else if (args[2].asNum()) |val| {
             if (!std.math.isFinite(val)) return .errType(2, "string or byte", root.dataToString(args[2]));
             break :blk @intFromFloat(std.math.clamp(@round(val), 0, 255));
         } else {
@@ -115,7 +115,7 @@ fn len_f(args: []const Data, vm: *VM) !NativeResult {
 /// returns character at index as single-char string
 fn index_f(args: []const Data, vm: *VM) !NativeResult {
     const str = vm.stringValue(args[0].asString().?);
-    const idx = if (args[1].asNumber()) |n| revo.asIndex(n) catch return .{ .ok = revo.core_atoms.data(.missing) } else return .errType(1, "number", root.dataToString(args[1]));
+    const idx = if (args[1].asNum()) |n| revo.asIndex(n) catch return .{ .ok = revo.core_atoms.data(.missing) } else return .errType(1, "number", root.dataToString(args[1]));
     if (idx >= str.len) return .{ .ok = revo.core_atoms.data(.missing) };
     const result = try vm.ownDataStringNoDedup(str[idx .. idx + 1]);
     return .{ .ok = result };
@@ -155,7 +155,7 @@ fn lower_f(args: []const Data, vm: *VM) !NativeResult {
 /// repeats string n times
 fn mul_f(args: []const Data, vm: *VM) !NativeResult {
     const str = vm.stringValue(args[0].asString().?);
-    const times = if (args[1].asNumber()) |n| @as(i64, @intFromFloat(n)) else return .errType(1, "number", root.dataToString(args[1]));
+    const times = if (args[1].asNum()) |n| @as(i64, @intFromFloat(n)) else return .errType(1, "number", root.dataToString(args[1]));
     if (times < 0) return .errType(1, "positive number", root.dataToString(args[1]));
 
     const count = @as(usize, @intCast(times));
@@ -177,8 +177,8 @@ fn tostring_f(args: []const Data, _: *VM) !NativeResult {
 /// extracts substring from start with given length
 fn sub_f(args: []const Data, vm: *VM) !NativeResult {
     const str = vm.stringValue(args[0].asString().?);
-    const start = if (args[1].asNumber()) |n| @as(i64, @intFromFloat(n)) else return .errType(1, "number", root.dataToString(args[1]));
-    const length = if (args[2].asNumber()) |n| @as(i64, @intFromFloat(n)) else return .errType(2, "number", root.dataToString(args[2]));
+    const start = if (args[1].asNum()) |n| @as(i64, @intFromFloat(n)) else return .errType(1, "number", root.dataToString(args[1]));
+    const length = if (args[2].asNum()) |n| @as(i64, @intFromFloat(n)) else return .errType(2, "number", root.dataToString(args[2]));
 
     if (start < 0 or length < 0 or start >= str.len) {
         const empty = try vm.ownDataString("");
@@ -308,7 +308,7 @@ fn ascii_f(args: []const Data, vm: *VM) !NativeResult {
 /// string_of(97) => "a"
 /// string_of({97, 98}) => "ab"
 fn string_of(args: []const Data, vm: *VM) !NativeResult {
-    if (args[0].asNumber()) |n| {
+    if (args[0].asNum()) |n| {
         const code: u32 = @intFromFloat(n);
         if (code > 127) {
             return .other("ASCII code out of range");
@@ -321,7 +321,7 @@ fn string_of(args: []const Data, vm: *VM) !NativeResult {
         var buf = try std.ArrayList(u8).initCapacity(vm.runtime.alloc, tuple.len());
         defer buf.deinit(vm.runtime.alloc);
         for (tuple.items) |val| {
-            if (val.asNumber()) |n| {
+            if (val.asNum()) |n| {
                 const code: u32 = @intFromFloat(n);
                 if (code > 127) {
                     return .other("ASCII code out of range");
@@ -391,7 +391,7 @@ fn join(args: []const Data, vm: *VM) !NativeResult {
     for (tbl.array.items, 0..) |item, i| {
         const item_str = if (item.asString()) |sid|
             vm.stringValue(sid)
-        else if (item.asNumber()) |n|
+        else if (item.asNum()) |n|
             try std.fmt.allocPrint(vm.runtime.alloc, "{}", .{n})
         else
             "?";

@@ -51,22 +51,8 @@ pub fn inferExprType(self: *Compiler, expr: *const Node) TypeInfo {
         .hash => |name| .{ .atom = name },
         .nil => .void,
         .ident => |name| inferVarType(self, name),
-        .unary => |u| types_mod.inferUnaryOp(
-            switch (u.op) {
-                .negate => types_mod.UnaryOp.negate,
-                .not => types_mod.UnaryOp.not,
-                .spawn, .join, .yield => return .any,
-            },
-            inferExprType(self, u.expr),
-        ),
-        .binary => |b| switch (b.op) {
-            .@"union" => .any,
-            inline else => |tag| types_mod.inferBinaryOp(
-                @field(types_mod.BinaryOp, @tagName(tag)),
-                inferExprType(self, b.left),
-                inferExprType(self, b.right),
-            ),
-        },
+        .unary => |u| types_mod.inferUnaryOp(u.op, inferExprType(self, u.expr)),
+        .binary => |b| types_mod.inferBinaryOp(b.op, inferExprType(self, b.left), inferExprType(self, b.right)),
         .and_expr, .or_expr => .bool,
         .if_expr => |v| inferIfType(self, v),
         .tuple => |items| inferTupleType(self, items),

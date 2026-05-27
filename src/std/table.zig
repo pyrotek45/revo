@@ -128,7 +128,7 @@ fn as_tuple(args: []const Data, vm: *VM) !NativeResult {
 fn insert(args: []const Data, vm: *VM) !NativeResult {
     if (args.len != 3) return .errArity(args.len, 3);
     const table_id = args[0].asTable() orelse return .errType(0, "table", dataToString(args[0]));
-    const pos_num = args[1].asNumber() orelse return .errType(1, "number", dataToString(args[1]));
+    const pos_num = args[1].asNum() orelse return .errType(1, "number", dataToString(args[1]));
     const pos = @as(i64, @intFromFloat(pos_num));
     const val = args[2];
 
@@ -150,7 +150,7 @@ fn insert(args: []const Data, vm: *VM) !NativeResult {
 fn remove(args: []const Data, vm: *VM) !NativeResult {
     if (args.len != 2) return .errArity(args.len, 2);
     const table_id = args[0].asTable() orelse return .errType(0, "table", dataToString(args[0]));
-    const pos_num = args[1].asNumber() orelse return .errType(1, "number", dataToString(args[1]));
+    const pos_num = args[1].asNum() orelse return .errType(1, "number", dataToString(args[1]));
     const pos = @as(i64, @intFromFloat(pos_num));
 
     const table = vm.tables.get(table_id) catch return .errType(0, "table", dataToString(args[0]));
@@ -404,8 +404,8 @@ fn sort(args: []const Data, vm: *VM) !NativeResult {
     const Context = struct {
         vm: *VM,
         pub fn compare(ctx: @This(), a: Data, b: Data) bool {
-            if (a.asNumber()) |an| {
-                if (b.asNumber()) |bn| return an < bn;
+            if (a.asNum()) |an| {
+                if (b.asNum()) |bn| return an < bn;
                 return true;
             }
             if (a.asString()) |as| {
@@ -565,14 +565,14 @@ fn sum(args: []const Data, vm: *VM) !NativeResult {
 
     var total: f64 = 0;
     for (tbl.array.items) |item| {
-        if (item.asNumber()) |n| total += n;
+        if (item.asNum()) |n| total += n;
     }
 
     return .{ .ok = Data.new.num(total) };
 }
 
 fn dataEq(a: Data, b: Data) bool {
-    if (a.asNumber()) |an| return if (b.asNumber()) |bn| an == bn else false;
+    if (a.asNum()) |an| return if (b.asNum()) |bn| an == bn else false;
     if (a.asString()) |as| return if (b.asString()) |bs| as == bs else false;
     if (a.asAtom()) |aa| return if (b.asAtom()) |ba| aa == ba else false;
     return false;

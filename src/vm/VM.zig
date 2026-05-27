@@ -2372,7 +2372,7 @@ pub inline fn evalRegister(
                 instr.b,
             )).asTuple() orelse return error.TypeError;
             const idx_val = regRead(slots, base, instr.c);
-            const idx_num = idx_val.asNumber() orelse return error.TypeError;
+            const idx_num = idx_val.asNum() orelse return error.TypeError;
             if (idx_num < 0 or
                 @floor(idx_num) != idx_num) return error.TypeError;
             if (idx_num > @as(
@@ -2704,7 +2704,7 @@ pub inline fn evalRegister(
         .spawn => try self.spawnRegister(instr),
         .join => {
             const handle = regRead(slots, base, instr.a);
-            const target_num = handle.asNumber() orelse return error.TypeError;
+            const target_num = handle.asNum() orelse return error.TypeError;
             const target_id = if (target_num >= 0 and
                 @floor(target_num) == target_num)
                 @as(usize, @intFromFloat(target_num))
@@ -2766,7 +2766,7 @@ pub inline fn evalRegister(
             regWrite(slots, base, instr.a, Data.new.num(current));
             if (instr.c != 0) {
                 const index_reg = regRead(slots, base, instr.c);
-                const index = index_reg.asNumber() orelse 0.0;
+                const index = index_reg.asNum() orelse 0.0;
                 if (has_next)
                     regWrite(slots, base, instr.c, Data.new.num(index + 1));
             }

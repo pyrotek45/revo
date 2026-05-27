@@ -52,7 +52,7 @@ pub fn resolveField(self: *VM, object: Data, key: Data) VM.EvalError!?FieldLooku
 
             // fast path::: tuple numeric indexing should not require mm lookup
             if (tuple_ref) |t| {
-                const idx_opt: ?usize = if (key.asNumber()) |n|
+                const idx_opt: ?usize = if (key.asNum()) |n|
                     if (n >= 0 and @floor(n) == n and n <= @as(f64, @floatFromInt(std.math.maxInt(usize)))) @as(usize, @intFromFloat(n)) else null
                 else
                     null;

@@ -41,15 +41,15 @@ test "vm join returns dead fiber result" {
     _ = try vm.runReport();
 
     const out = vm.mainResult();
-    try testing.expectEqual(@as(f64, 42), out.asNumber().?);
+    try testing.expectEqual(@as(f64, 42), out.asNum().?);
 }
 
 test "nanboxed numbers preserve nan through helpers" {
     const nan = Data.new.num(std.math.nan(f64));
     try testing.expect(nan.asNum() != null);
     try testing.expect(std.math.isNan(nan.asNum().?));
-    try testing.expect(nan.asNumber() != null);
-    try testing.expect(std.math.isNan(nan.asNumber().?));
+    try testing.expect(nan.asNum() != null);
+    try testing.expect(std.math.isNan(nan.asNum().?));
 }
 
 test "vm join parks current fiber when target alive" {
@@ -112,7 +112,7 @@ test "vm spawn passes n args to child and join returns result" {
     try testing.expect(result == .ok);
 
     const out = vm.mainResult();
-    try testing.expectEqual(@as(f64, 5), out.asNumber().?);
+    try testing.expectEqual(@as(f64, 5), out.asNum().?);
 }
 
 test "vm channel handoff wakes blocked receiver" {
@@ -131,7 +131,7 @@ test "vm channel handoff wakes blocked receiver" {
     try vm.sched.channelSend(ch, Data.new.num(99));
 
     try testing.expectEqual(@as(VM.Fiber.State, .ready), vm.sched.fibers.items[1].state);
-    try testing.expectEqual(@as(f64, 99), vm.sched.fibers.items[1].slots.items[0].asNumber().?);
+    try testing.expectEqual(@as(f64, 99), vm.sched.fibers.items[1].slots.items[0].asNum().?);
 }
 
 test "scheduler generic park wake resumes parked fiber" {
@@ -165,7 +165,7 @@ test "scheduler generic park wake resumes parked fiber" {
     try vm.sched.wakeFiber(1, Data.new.num(13));
 
     try testing.expectEqual(@as(VM.Fiber.State, .ready), vm.sched.fibers.items[1].state);
-    try testing.expectEqual(@as(f64, 13), vm.sched.fibers.items[1].slots.items[1].asNumber().?);
+    try testing.expectEqual(@as(f64, 13), vm.sched.fibers.items[1].slots.items[1].asNum().?);
 }
 
 test "vm channel buffered send then recv" {
@@ -180,7 +180,7 @@ test "vm channel buffered send then recv" {
         try vm.push(value);
     }
     try testing.expectEqual(before + 1, vm.currentFiber().slots.items.len);
-    try testing.expectEqual(@as(f64, 7), vm.currentFiber().slots.items[vm.currentFiber().slots.items.len - 1].asNumber().?);
+    try testing.expectEqual(@as(f64, 7), vm.currentFiber().slots.items[vm.currentFiber().slots.items.len - 1].asNum().?);
 }
 
 test "vm gc reuses freed table ids" {

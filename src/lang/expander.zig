@@ -66,200 +66,17 @@ const MatchResult = struct {
 };
 
 //
-// unified AST walk
-//
-// both expand and substitute phases do esentially the same recursion over the ast
-// rather than duplicating every case twice, i parameterize over a comptime transform
-// that carries the phase-specific state and implements the two operations of:
-//   - walkNode: recurse into a single child node
-//   - walkSlice: recurse into a slice of child nodes
-//
-// each transform is a struct with:
-//   fn walk(self, allocator, node) !*node
-//   fn walkSlice(self, allocator, nodes) ![]*node
-//
-fn walkExpr(
-    allocator: std.mem.Allocator,
-    expr: *Node,
-    comptime Transform: type,
-    ctx: Transform,
-) ExpandError!*Node {
-    return switch (expr.expr) {
-        .unary => |v| alloc(allocator, expr.span, .{ .unary = .{
-            .op = v.op,
-            .expr = try ctx.walk(allocator, v.expr, ctx),
-        } }),
-        .binary => |v| alloc(allocator, expr.span, .{ .binary = .{
-            .op = v.op,
-            .left = try ctx.walk(allocator, v.left, ctx),
-            .right = try ctx.walk(allocator, v.right, ctx),
-        } }),
-        .and_expr => |v| alloc(allocator, expr.span, .{ .and_expr = .{
-            .left = try ctx.walk(allocator, v.left, ctx),
-            .right = try ctx.walk(allocator, v.right, ctx),
-        } }),
-        .or_expr => |v| alloc(allocator, expr.span, .{ .or_expr = .{
-            .left = try ctx.walk(allocator, v.left, ctx),
-            .right = try ctx.walk(allocator, v.right, ctx),
-        } }),
-        .field => |v| alloc(allocator, expr.span, .{ .field = .{
-            .object = try ctx.walk(allocator, v.object, ctx),
-            .name = v.name,
-        } }),
-        .index => |v| alloc(allocator, expr.span, .{ .index = .{
-            .object = try ctx.walk(allocator, v.object, ctx),
-            .key = try ctx.walk(allocator, v.key, ctx),
-        } }),
-        .if_expr => |v| alloc(allocator, expr.span, .{ .if_expr = .{
-            .condition = try ctx.walk(allocator, v.condition, ctx),
-            .then_expr = try ctx.walk(allocator, v.then_expr, ctx),
-            .else_expr = if (v.else_expr) |e| try ctx.walk(allocator, e, ctx) else null,
-        } }),
-        .fn_expr => |v| alloc(allocator, expr.span, .{ .fn_expr = .{
-            .params = v.params,
-            .return_type = v.return_type,
-            .body = try ctx.walk(allocator, v.body, ctx),
-        } }),
-        .loop_expr => |v| alloc(allocator, expr.span, .{ .loop_expr = .{
-            .body = try ctx.walk(allocator, v.body, ctx),
-        } }),
-        .for_loop => |v| alloc(allocator, expr.span, .{ .for_loop = .{
-            .params = v.params,
-            .iter = try ctx.walk(allocator, v.iter, ctx),
-            .body = try ctx.walk(allocator, v.body, ctx),
-        } }),
-        .while_loop => |v| alloc(allocator, expr.span, .{ .while_loop = .{
-            .predicate = v.predicate,
-            .body = try ctx.walk(allocator, v.body, ctx),
-        } }),
-        .break_expr => |v| alloc(allocator, expr.span, .{
-            .break_expr = if (v) |inner| try ctx.walk(allocator, inner, ctx) else null,
-        }),
-        .return_expr => |v| alloc(allocator, expr.span, .{
-            .return_expr = if (v) |inner| try ctx.walk(allocator, inner, ctx) else null,
-        }),
-        .import_expr => |v| alloc(allocator, expr.span, .{
-            .import_expr = try ctx.walk(allocator, v, ctx),
-        }),
-        .mod_expr => |v| alloc(allocator, expr.span, .{ .mod_expr = .{
-            .name = v.name,
-            .body = try ctx.walk(allocator, v.body, ctx),
-            .is_pub = v.is_pub,
-        } }),
-        .comp_block => |cb| alloc(allocator, expr.span, .{ .comp_block = .{
-            .expr = try ctx.walk(allocator, cb.expr, ctx),
-            .is_macro = cb.is_macro,
-        } }),
-        .assign_expr => |v| alloc(allocator, expr.span, .{ .assign_expr = .{
-            .target = try ctx.walk(allocator, v.target, ctx),
-            .value = try ctx.walk(allocator, v.value, ctx),
-        } }),
-        .let_expr => |v| alloc(allocator, expr.span, .{ .let_expr = .{
-            .target = try ctx.walk(allocator, v.target, ctx),
-            .type_name = v.type_name,
-            .value = try ctx.walk(allocator, v.value, ctx),
-            .is_pub = v.is_pub,
-        } }),
-        .con_expr => |v| alloc(allocator, expr.span, .{ .con_expr = .{
-            .target = try ctx.walk(allocator, v.target, ctx),
-            .type_name = v.type_name,
-            .value = try ctx.walk(allocator, v.value, ctx),
-            .is_pub = v.is_pub,
-        } }),
-        .tuple => |items| alloc(allocator, expr.span, .{
-            .tuple = try ctx.walkSlice(allocator, items, ctx),
-        }),
-        .tuple_pattern => |items| alloc(allocator, expr.span, .{
-            .tuple_pattern = try ctx.walkSlice(allocator, items, ctx),
-        }),
-        .block => |items| alloc(allocator, expr.span, .{
-            .block = try ctx.walkSlice(allocator, items, ctx),
-        }),
-        .call => |v| alloc(allocator, expr.span, .{ .call = .{
-            .callee = try ctx.walk(allocator, v.callee, ctx),
-            .args = try ctx.walkSlice(allocator, v.args, ctx),
-            .implicit_self = v.implicit_self,
-        } }),
-        .proc_macro => |pm| alloc(allocator, expr.span, .{ .proc_macro = .{
-            .name = pm.name,
-            .param = pm.param,
-            .body = try ctx.walk(allocator, pm.body, ctx),
-        } }),
-        .match_expr => |v| walkMatch(allocator, expr.span, v, Transform, ctx),
-        .table => |entries| walkTable(allocator, expr.span, entries, Transform, ctx),
-        else => expr,
-    };
-}
-
-fn walkMatch(
-    allocator: std.mem.Allocator,
-    span: Span,
-    match_expr: anytype,
-    comptime Transform: type,
-    ctx: Transform,
-) ExpandError!*Node {
-    var arms = try std.ArrayList(ast.MatchArm).initCapacity(allocator, match_expr.arms.len);
-    for (match_expr.arms) |arm| {
-        var matchers = try std.ArrayList(ast.MatchMatcher).initCapacity(allocator, arm.matchers.len);
-        for (arm.matchers) |matcher| {
-            switch (matcher) {
-                .wildcard => try matchers.append(allocator, .wildcard),
-                .expr => |v| try matchers.append(allocator, .{ .expr = try ctx.walk(allocator, v, ctx) }),
-            }
-        }
-        try arms.append(allocator, .{
-            .matchers = try matchers.toOwnedSlice(allocator),
-            .guard = if (arm.guard) |g| try ctx.walk(allocator, g, ctx) else null,
-            .then = try ctx.walk(allocator, arm.then, ctx),
-        });
-    }
-    return alloc(allocator, span, .{ .match_expr = .{
-        .subject = try ctx.walk(allocator, match_expr.subject, ctx),
-        .arms = try arms.toOwnedSlice(allocator),
-    } });
-}
-
-fn walkTable(
-    allocator: std.mem.Allocator,
-    span: Span,
-    entries: []const ast.TableEntry,
-    comptime Transform: type,
-    ctx: Transform,
-) ExpandError!*Node {
-    var out = try std.ArrayList(ast.TableEntry).initCapacity(allocator, entries.len);
-    for (entries) |entry| {
-        try out.append(allocator, .{
-            .key = if (entry.key) |k| try ctx.walk(allocator, k, ctx) else null,
-            .computed = entry.computed,
-            .value = try ctx.walk(allocator, entry.value, ctx),
-        });
-    }
-    return alloc(allocator, span, .{ .table = try out.toOwnedSlice(allocator) });
-}
-
-fn walkSliceWith(
-    allocator: std.mem.Allocator,
-    items: []const *Node,
-    comptime Transform: type,
-    ctx: Transform,
-) ExpandError![]*Node {
-    var out = try std.ArrayList(*Node).initCapacity(allocator, items.len);
-    for (items) |item| try out.append(allocator, try ctx.walk(allocator, @constCast(item), ctx));
-    return out.toOwnedSlice(allocator);
-}
-
-//
 // expand phase
 //
 const ExpandCtx = struct {
     env: *MacroEnv,
 
-    fn walk(self: ExpandCtx, allocator: std.mem.Allocator, expr: *Node, _: ExpandCtx) ExpandError!*Node {
+    pub fn walk(self: ExpandCtx, allocator: std.mem.Allocator, expr: *Node, _: ExpandCtx) ExpandError!*Node {
         return expandInEnv(allocator, expr, self.env);
     }
 
-    fn walkSlice(self: ExpandCtx, allocator: std.mem.Allocator, items: []const *Node, _: ExpandCtx) ExpandError![]*Node {
-        return walkSliceWith(allocator, items, ExpandCtx, self);
+    pub fn walkSlice(self: ExpandCtx, allocator: std.mem.Allocator, items: []const *Node, _: ExpandCtx) ExpandError![]*Node {
+        return ast.walkSliceWith(allocator, items, ExpandCtx, self);
     }
 };
 
@@ -268,15 +85,14 @@ fn expandInEnv(allocator: std.mem.Allocator, expr: *Node, env: *MacroEnv) Expand
         .block => |items| blk: {
             var child = try env.clone();
             defer child.deinit();
-            break :blk alloc(allocator, expr.span, .{
-                .block = try walkSliceWith(allocator, items, ExpandCtx, .{ .env = &child }),
+            break :blk ast.allocNode(allocator, expr.span, .{
+                .block = try ast.walkSliceWith(allocator, items, ExpandCtx, .{ .env = &child }),
             });
         },
         .con_expr => |binding| expandCon(allocator, expr.span, binding, env),
         .call => |call| maybeExpandCall(allocator, expr.span, call.callee, call.args, call.implicit_self, env),
         .ident => |name| expandIdent(expr, name, env),
-        .tuple_pattern => |items| expandTuplePattern(allocator, expr.span, items),
-        else => walkExpr(allocator, expr, ExpandCtx, .{ .env = env }),
+        else => ast.walkExpr(allocator, expr, ExpandCtx, .{ .env = env }),
     };
 }
 
@@ -284,9 +100,9 @@ fn expandCon(allocator: std.mem.Allocator, span: Span, binding: ast.Binding, env
     if (binding.target.expr == .ident and binding.value.expr == .macro_expr) {
         const def = try parseMacroDef(allocator, binding.value.expr.macro_expr.pattern, binding.value.expr.macro_expr.template);
         try env.map.put(binding.target.expr.ident, def);
-        return alloc(allocator, span, .nil);
+        return ast.allocNode(allocator, span, .nil);
     }
-    return alloc(allocator, span, .{ .con_expr = .{
+    return ast.allocNode(allocator, span, .{ .con_expr = .{
         .target = try expandInEnv(allocator, binding.target, env),
         .type_name = binding.type_name,
         .value = try expandInEnv(allocator, binding.value, env),
@@ -309,7 +125,7 @@ fn expandTuplePattern(allocator: std.mem.Allocator, span: Span, items: []const *
             else => @constCast(item),
         });
     }
-    return alloc(allocator, span, .{ .tuple_pattern = try out.toOwnedSlice(allocator) });
+    return ast.allocNode(allocator, span, .{ .tuple_pattern = try out.toOwnedSlice(allocator) });
 }
 
 fn maybeExpandCall(
@@ -321,7 +137,7 @@ fn maybeExpandCall(
     env: *MacroEnv,
 ) ExpandError!*Node {
     const expanded_callee = try expandInEnv(allocator, callee, env);
-    const expanded_args = try walkSliceWith(allocator, args, ExpandCtx, .{ .env = env });
+    const expanded_args = try ast.walkSliceWith(allocator, args, ExpandCtx, .{ .env = env });
 
     if (expanded_callee.expr == .ident) {
         if (env.map.get(expanded_callee.expr.ident)) |def| {
@@ -336,7 +152,7 @@ fn maybeExpandCall(
         }
     }
 
-    return alloc(allocator, span, .{ .call = .{
+    return ast.allocNode(allocator, span, .{ .call = .{
         .callee = expanded_callee,
         .args = expanded_args,
         .implicit_self = implicit_self,
@@ -350,12 +166,12 @@ const SubstCtx = struct {
     span: Span,
     replacements: *std.StringHashMap(*Node),
 
-    fn walk(self: SubstCtx, allocator: std.mem.Allocator, expr: *Node, _: SubstCtx) ExpandError!*Node {
+    pub fn walk(self: SubstCtx, allocator: std.mem.Allocator, expr: *Node, _: SubstCtx) ExpandError!*Node {
         return substitutePlaceholders(allocator, self.span, expr, self.replacements);
     }
 
-    fn walkSlice(self: SubstCtx, allocator: std.mem.Allocator, items: []const *Node, _: SubstCtx) ExpandError![]*Node {
-        return walkSliceWith(allocator, items, SubstCtx, self);
+    pub fn walkSlice(self: SubstCtx, allocator: std.mem.Allocator, items: []const *Node, _: SubstCtx) ExpandError![]*Node {
+        return ast.walkSliceWith(allocator, items, SubstCtx, self);
     }
 };
 
@@ -366,9 +182,9 @@ fn substitutePlaceholders(
     replacements: *std.StringHashMap(*Node),
 ) ExpandError!*Node {
     if (expr.expr == .ident) {
-        return replacements.get(expr.expr.ident) orelse alloc(allocator, span, expr.expr);
+        return replacements.get(expr.expr.ident) orelse ast.allocNode(allocator, span, expr.expr);
     }
-    return walkExpr(allocator, expr, SubstCtx, .{ .span = span, .replacements = replacements });
+    return ast.walkExpr(allocator, expr, SubstCtx, .{ .span = span, .replacements = replacements });
 }
 
 const AstSubstituter = struct {
@@ -966,12 +782,6 @@ fn findMatchingParen(text: []const u8, open_idx: usize) ?usize {
 
 fn isNameChar(c: u8) bool {
     return std.ascii.isAlphabetic(c) or std.ascii.isDigit(c) or c == '_' or c == '!' or c == '?';
-}
-
-fn alloc(allocator: std.mem.Allocator, span: Span, expr: Expr) !*Node {
-    const node = try allocator.create(Node);
-    node.* = .{ .span = span, .expr = expr };
-    return node;
 }
 
 pub const testing = struct {

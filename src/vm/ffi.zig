@@ -38,7 +38,7 @@ pub const CRevoData = extern struct {
     pub fn ofData(data: Data, vm_alloc: std.mem.Allocator, strings: *const root.VM.Interner, copies: *std.ArrayList([:0]u8)) !CRevoData {
         const tag = data.tag();
         const value: u64 = switch (tag) {
-            .number => @bitCast(data.asNumber().?),
+            .number => @bitCast(data.asNum().?),
             .string => blk: {
                 const str_slice = strings.getAssumeAlive(data.asString().?);
                 const copy = try vm_alloc.dupeZ(u8, str_slice);
@@ -71,7 +71,7 @@ pub export fn revo_getglobal(vm: *anyopaque, name_ptr: u64, name_len: usize) cal
     if (vm_typed.getGlobal(name_slice)) |value| {
         const tag = value.tag();
         const c_value: u64 = switch (tag) {
-            .number => @bitCast(value.asNumber().?),
+            .number => @bitCast(value.asNum().?),
             .string => value.asString().?,
             .atom => value.asAtom().?,
             .function => value.asFunction().?,
@@ -107,7 +107,7 @@ pub export fn revo_table_get(vm: *anyopaque, table_id: u64, key: CRevoData) call
     if (tbl.get(key_data, vm_typed) catch return CRevoData{ .tag = @intFromEnum(memory.Type.atom), .value = 0 }) |value| {
         const tag = value.tag();
         const c_value: u64 = switch (tag) {
-            .number => @bitCast(value.asNumber().?),
+            .number => @bitCast(value.asNum().?),
             .string => value.asString().?,
             .atom => value.asAtom().?,
             .function => value.asFunction().?,

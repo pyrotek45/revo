@@ -543,15 +543,11 @@ fn typeInfoFromName(
 
 fn evalConstNode(self: *Compiler, node: *const Node) ?Data {
     switch (node.expr) {
-        // TODO: the rest of them
         .number => |n| return Data.new.num(n.value),
         .string => |s| return self.vm.ownDataString(s) catch return null,
+        .multiline_string => |s| return self.vm.ownDataString(s) catch return null,
         .hash => |h| return self.vm.dataAtom(h) catch return null,
-        .ident => |name| {
-            if (std.mem.eql(u8, name, "nil"))
-                return revo.core_atoms.data(.nil);
-            return null;
-        },
+        .nil => return revo.core_atoms.data(.nil),
         else => return null,
     }
 }

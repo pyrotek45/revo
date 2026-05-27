@@ -175,7 +175,7 @@ pub const core_atoms = enum(AtomID) {
 
 /// (:f or :false or :nil or 0 or 0.0 or :undef or :missing) == :false
 pub inline fn isFalse(val: Data) bool {
-    if (val.asNumber()) |n| return n == 0;
+    if (val.asNum()) |n| return n == 0;
     if (val.asAtom()) |id| return id <= core_atoms.lastFalse;
     return false;
 }

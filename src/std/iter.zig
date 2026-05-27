@@ -44,7 +44,7 @@ pub fn map_fn(args: []const Data, vm: *VM) !NativeResult {
 
                 const mapped_byte = if (fn_result.asString()) |s|
                     vm.stringValue(s)[0]
-                else if (fn_result.asNumber()) |n|
+                else if (fn_result.asNum()) |n|
                     @as(u8, @intFromFloat(std.math.clamp(@round(n), 0, 255)))
                 else
                     return .errType(0, "string or number", dataToString(fn_result));

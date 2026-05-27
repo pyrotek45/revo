@@ -157,7 +157,7 @@ fn runProgram(vm: *VM, program: *Program, out_value: ?*ErevoData) bool {
             if (out_value) |out| {
                 const cr = runtime_vm.currentResult();
                 const tag = @intFromEnum(cr.tag());
-                const value = if (cr.asNumber()) |n|
+                const value = if (cr.asNum()) |n|
                     @as(u64, @bitCast(n))
                 else if (cr.asString()) |v|
                     @as(u64, @intCast(v))

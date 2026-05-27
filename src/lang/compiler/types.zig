@@ -1,4 +1,5 @@
 const std = @import("std");
+const ast = @import("../ast.zig");
 
 pub const UnionVariant = struct {
     name: []const u8,
@@ -147,25 +148,22 @@ fn targetAcceptsVariant(variant: UnionVariant, target: TypeInfo) bool {
     return true;
 }
 
-pub const BinaryOp = enum { add, sub, mul, div, mod, eq, neq, lt, gt, lte, gte, @"and", @"or" };
-
-pub fn inferBinaryOp(op: BinaryOp, l: TypeInfo, r: TypeInfo) TypeInfo {
+pub fn inferBinaryOp(op: ast.BinOp, l: TypeInfo, r: TypeInfo) TypeInfo {
     return switch (op) {
+        .@"union" => .any,
         .add, .sub, .mul, .div, .mod => blk: {
             if (l == .int and r == .int) break :blk .int;
             if (isNumeric(l) and isNumeric(r)) break :blk .float;
             break :blk .any;
         },
         .eq, .neq, .lt, .gt, .lte, .gte => .bool,
-        .@"and", .@"or" => .bool,
     };
 }
 
-pub const UnaryOp = enum { negate, not };
-
-pub fn inferUnaryOp(op: UnaryOp, t: TypeInfo) TypeInfo {
+pub fn inferUnaryOp(op: ast.UnOp, t: TypeInfo) TypeInfo {
     return switch (op) {
         .negate => if (isNumeric(t)) t else .any,
         .not => .bool,
+        .spawn, .join, .yield => .any,
     };
 }

@@ -16,7 +16,7 @@ pub fn writeData(self: Data, writer: *std.Io.Writer, vm: *revo.VM, mode: Data.Re
     }
 
     switch (self.tag()) {
-        .number => try writer.print("{}", .{self.asNumber().?}),
+        .number => try writer.print("{}", .{self.asNum().?}),
         .string => switch (mode) {
             .display => try writer.writeAll(vm.stringValue(self.asString().?)),
             .debug => try writer.print("\"{s}\"", .{vm.stringValue(self.asString().?)}),

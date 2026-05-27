@@ -388,7 +388,7 @@ fn getEntryPtr(socket_data: Data, vm: *VM) !*SocketEntry {
     const table = try vm.tables.get(socket_data.asTable().?);
     const d = table.getRaw(Data.new.atom(try vm.internAtom("__entry_ptr"))) orelse
         return error.InvalidSocket;
-    const addr: usize = @intFromFloat(d.asNumber().?);
+    const addr: usize = @intFromFloat(d.asNum().?);
     if (addr == 0) return error.SocketClosed;
     return @as(*SocketEntry, @ptrFromInt(addr));
 }
@@ -422,7 +422,7 @@ fn closeEntry(socket_data: Data, vm: *VM) !void {
 /// connects to a remote host and port, returns a socket handle
 fn connect_fn(args: []const Data, vm: *VM) !NativeResult {
     const host = vm.stringValue(args[0].asString().?);
-    const port: u16 = @intFromFloat(args[1].asNumber().?);
+    const port: u16 = @intFromFloat(args[1].asNum().?);
 
     const host_to_use = if (std.mem.eql(u8, host, "localhost")) "127.0.0.1" else host;
     const addr = std.Io.net.IpAddress.parseIp4(host_to_use, port) catch |err| {
@@ -446,8 +446,8 @@ fn connect_fn(args: []const Data, vm: *VM) !NativeResult {
 /// > net:listen(port: number [, backlog: number]) -> socket
 /// listens for incoming connections on the given port, returns server socket
 fn listen_fn(args: []const Data, vm: *VM) !NativeResult {
-    const port: u16 = @intFromFloat(args[0].asNumber().?);
-    const backlog: u31 = if (args.len > 1) @intFromFloat(args[1].asNumber().?) else 128;
+    const port: u16 = @intFromFloat(args[0].asNum().?);
+    const backlog: u31 = if (args.len > 1) @intFromFloat(args[1].asNum().?) else 128;
 
     const addr = std.Io.net.IpAddress.parseIp4("0.0.0.0", port) catch |err| {
         return try root.resultTuple(vm, .err, try vm.dataAtom(@errorName(err)));
@@ -607,7 +607,7 @@ fn parseRecvOptions(opts_data: Data, vm: *VM) !RecvWaitToken {
 
     if (opts.getRaw(Data.new.atom(try vm.internAtom("max_bytes")))) |max_d| {
         if (!max_d.isNumber()) return error.TypeError;
-        token.max_bytes = @as(usize, @intFromFloat(max_d.asNumber().?));
+        token.max_bytes = @as(usize, @intFromFloat(max_d.asNum().?));
     }
     if (token.max_bytes == 0) token.max_bytes = 1;
 
