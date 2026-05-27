@@ -8,8 +8,8 @@ const async_backend = @import("./async_backend.zig");
 //   main thread polls the pipe and processes completions in poll_impl
 
 pub const BackendState = struct {
-    control_r: c_int,
-    control_w: c_int,
+    control_r: c_int = -1,
+    control_w: c_int = -1,
 };
 
 fn print(comptime fmt: []const u8, args: anytype) void {
@@ -18,9 +18,16 @@ fn print(comptime fmt: []const u8, args: anytype) void {
 
 pub fn init(bs: *BackendState) anyerror!void {
     var fds: [2]c_int = undefined;
-    if (std.posix.pipe(&fds) == -1) return error.Unexpected;
+    if (std.c.pipe(&fds) == -1) return error.Unexpected;
     bs.control_r = fds[0];
     bs.control_w = fds[1];
+}
+
+pub fn deinit(bs: *BackendState) void {
+    if (bs.control_r >= 0) _ = std.c.close(bs.control_r);
+    if (bs.control_w >= 0 and bs.control_w != bs.control_r) _ = std.c.close(bs.control_w);
+    bs.control_r = -1;
+    bs.control_w = -1;
 }
 
 fn wakeTuple(vm: *revo.VM, fiber_id: revo.VM.FiberID, tag: revo.core_atoms, payload: revo.Data) !void {
@@ -108,8 +115,12 @@ fn worker(wfd: c_int, job: *async_backend.AsyncJob) void {
     }
 }
 
-pub fn submit(self: *async_backend.AsyncBackend, vm_ptr: *anyopaque, job: *async_backend.AsyncJob) anyerror!async_backend.AsyncTicket {
+pub fn submit(self: *BackendState, vm_ptr: *anyopaque, job: *async_backend.AsyncJob) anyerror!async_backend.AsyncTicket {
     const vm: *revo.VM = @ptrCast(@alignCast(vm_ptr));
+    errdefer {
+        if (job.buffer) |buf| vm.runtime.alloc.free(buf);
+        vm.runtime.alloc.destroy(job);
+    }
     // if sending a message id, copy message into buffer so worker can use it
     if (job.kind == async_backend.AsyncJobKind.socket_send and job.message_id != 0) {
         const msg = vm.stringValue(job.message_id);
@@ -118,9 +129,7 @@ pub fn submit(self: *async_backend.AsyncBackend, vm_ptr: *anyopaque, job: *async
         while (i < msg.len) : (i += 1) buf[i] = msg[i];
         job.buffer = buf;
     }
-    const d = self.data orelse return error.Unexpected;
-    const bs_ptr: *BackendState = @ptrCast(@alignCast(d));
-    const t = try std.Thread.spawn(.{}, worker, .{ bs_ptr.control_w, job });
+    const t = try std.Thread.spawn(.{}, worker, .{ self.control_w, job });
     t.detach();
     return 0;
 }
@@ -188,7 +197,7 @@ fn drain_pipe(vm: *revo.VM, bs: *BackendState) !bool {
     var buf_arr: [@sizeOf(CompletionRecord)]u8 = undefined;
     var any = false;
     while (true) {
-        const n = std.posix.read(bs.control_r, &buf_arr, @sizeOf(CompletionRecord));
+        const n = std.c.read(bs.control_r, &buf_arr, @sizeOf(CompletionRecord));
         if (n <= 0) break;
         if (n < @as(isize, @sizeOf(CompletionRecord))) break;
         const rec_ptr: *CompletionRecord = @ptrCast(@alignCast(&buf_arr));
@@ -199,30 +208,25 @@ fn drain_pipe(vm: *revo.VM, bs: *BackendState) !bool {
     return any;
 }
 
-fn poll_impl(vm_ptr: *anyopaque, timeout_ms: i32) anyerror!bool {
+fn poll_impl(bs: *BackendState, vm_ptr: *anyopaque, timeout_ms: i32) anyerror!bool {
     const vm: *revo.VM = @ptrCast(@alignCast(vm_ptr));
     var woke_any = false;
     var used_timeout = timeout_ms;
 
-    if (vm.runtime.async_backend) |bb| {
-        if (bb.data) |d| {
-            const bs: *BackendState = @ptrCast(@alignCast(d));
-            var one = [_]std.posix.pollfd{
-                .{ .fd = bs.control_r, .events = std.posix.POLL.IN, .revents = 0 },
-            };
-            _ = try std.posix.poll(&one, timeout_ms);
-            if (one[0].revents != 0) {
-                const did = try drain_pipe(vm, bs);
-                woke_any = woke_any or did;
-            }
-            used_timeout = 0;
-        }
+    var one = [_]std.posix.pollfd{
+        .{ .fd = bs.control_r, .events = std.posix.POLL.IN, .revents = 0 },
+    };
+    _ = try std.posix.poll(&one, timeout_ms);
+    if (one[0].revents != 0) {
+        const did = try drain_pipe(vm, bs);
+        woke_any = woke_any or did;
     }
+    used_timeout = 0;
 
     const io_woke = try revo.std_net.pollIoWaiters(vm, used_timeout);
     return woke_any or io_woke;
 }
 
-pub fn poll_all(vm: *anyopaque, timeout_ms: i32) anyerror!bool {
-    return poll_impl(vm, timeout_ms);
+pub fn poll_all(bs: *BackendState, vm: *anyopaque, timeout_ms: i32) anyerror!bool {
+    return poll_impl(bs, vm, timeout_ms);
 }

@@ -484,8 +484,7 @@ fn accept_fn(args: []const Data, vm: *VM) !NativeResult {
         .stream => return try root.resultTuple(vm, .err, revo.core_atoms.data(.NotServerSocket)),
     };
 
-    // if an async backend is present, dispatch to the default backend submit
-    if (vm.runtime.async_backend) |backend| {
+    if (revo.has_async_backend) {
         // allocate job and submit to backend; backend owns job afterwards
         const job = try vm.runtime.alloc.create(revo.async_backend.AsyncJob);
         job.* = .{
@@ -497,7 +496,11 @@ fn accept_fn(args: []const Data, vm: *VM) !NativeResult {
             .buffer = null,
             .max_bytes = 0,
         };
-        _ = try revo.async_backend_impl.submit(backend, @ptrCast(vm), job);
+        _ = try revo.async_backend_impl.submit(
+            &vm.runtime.async_backend,
+            @ptrCast(vm),
+            job,
+        );
         // park current fiber; backend must wake it
         vm.sched.parkCurrent(.{ .io = .{ .wait_id = @intCast(server.socket.handle) } });
         return .parked();
@@ -552,8 +555,7 @@ fn send_fn(args: []const Data, vm: *VM) !NativeResult {
 
     const handle = stream.socket.socket.handle;
 
-    // if runtime async backend supports submit, offload to backend
-    if (vm.runtime.async_backend) |backend| {
+    if (revo.has_async_backend) {
         const job = try vm.runtime.alloc.create(revo.async_backend.AsyncJob);
         job.* = .{
             .fiber_id = vm.sched.current_fiber,
@@ -564,7 +566,11 @@ fn send_fn(args: []const Data, vm: *VM) !NativeResult {
             .buffer = null,
             .max_bytes = 0,
         };
-        _ = try revo.async_backend_impl.submit(backend, @ptrCast(vm), job);
+        _ = try revo.async_backend_impl.submit(
+            &vm.runtime.async_backend,
+            @ptrCast(vm),
+            job,
+        );
         vm.sched.parkCurrent(.{ .io = .{ .wait_id = @intCast(handle) } });
         return .parked();
     }

@@ -174,7 +174,6 @@ ring_mask: usize,
 sleepers: std.ArrayList(SleepWaiter),
 io_waiters: std.ArrayList(WaitEntry),
 channels: std.AutoHashMap(ChannelID, ChannelState),
-io_poll: ?*const fn (*VM, i32) anyerror!bool,
 waiting_cnt: usize,
 
 pub fn init(alloc: std.mem.Allocator) !@This() {
@@ -190,7 +189,6 @@ pub fn init(alloc: std.mem.Allocator) !@This() {
         .sleepers = try std.ArrayList(SleepWaiter).initCapacity(alloc, 4),
         .io_waiters = try std.ArrayList(WaitEntry).initCapacity(alloc, 4),
         .channels = std.AutoHashMap(ChannelID, ChannelState).init(alloc),
-        .io_poll = null,
         .waiting_cnt = 0,
     };
 }

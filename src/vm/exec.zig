@@ -60,12 +60,16 @@ pub fn runReport(self: *VM) !@TypeOf(self.*).EvalResult {
             else
                 -1;
 
-            const io_poll = self.sched.io_poll orelse {
-                try self.setRuntimeMessage("io poll is not configured");
-                return .{ .err = self.evalFailure(error.Panic) };
-            };
-            _ = io_poll(self, timeout_ms) catch
-                return .{ .err = self.evalFailure(error.Panic) };
+            if (revo.has_async_backend) {
+                _ = revo.async_backend_impl.poll_all(
+                    &self.runtime.async_backend,
+                    self,
+                    timeout_ms,
+                ) catch return .{ .err = self.evalFailure(error.Panic) };
+            } else {
+                _ = revo.std_net.pollIoWaiters(self, timeout_ms) catch
+                    return .{ .err = self.evalFailure(error.Panic) };
+            }
 
             try @call(.always_inline, Scheduler.wakeDueSleepers, .{
                 &self.sched,

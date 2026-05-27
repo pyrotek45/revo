@@ -14,18 +14,25 @@ pub const Runtime = struct {
     // SAFETY: set by init() before use
     stderr: std.Io.File = undefined,
     vm: ?*VM = null,
-    async_backend: ?*async_backend.AsyncBackend = null,
+    async_backend: async_backend_impl.BackendState = .{},
 
     /// ret: a new runtime with its own vm
     pub fn init(alloc: std.mem.Allocator, io: std.Io, argv: []const [:0]const u8) !Runtime {
-        const vm_ptr = try alloc.create(VM);
-        vm_ptr.* = try VM.init(.{ .alloc = alloc, .io = io, .argv = argv });
-        return .{
+        var rt: Runtime = .{
             .alloc = alloc,
             .io = io,
-            .vm = vm_ptr,
-            .async_backend = null,
+            .argv = argv,
         };
+
+        const vm_ptr = try alloc.create(VM);
+        errdefer alloc.destroy(vm_ptr);
+        vm_ptr.* = try VM.init(.{
+            .alloc = alloc,
+            .io = io,
+            .argv = argv,
+        });
+        rt.vm = vm_ptr;
+        return rt;
     }
 
     /// deinit runtime and free vm

@@ -224,6 +224,8 @@ pub fn init(runtime: revo.Runtime) !VM {
         .gc_mark_stack = try std.ArrayList(MarkItem).initCapacity(runtime.alloc, 256),
         .gc_sweep_state = .{},
     };
+    try revo.async_backend_impl.init(&vm.runtime.async_backend);
+    errdefer revo.async_backend_impl.deinit(&vm.runtime.async_backend);
 
     // init icache with max pc to force miss
     for (&vm.icache) |*entry| {
@@ -236,10 +238,6 @@ pub fn init(runtime: revo.Runtime) !VM {
     }
 
     try vm.package_path.appendSlice(runtime.alloc, &.{ "./?", "./lib/?", "/usr/local/lib/revo/?" });
-
-    // wire scheduler io poll to net poll as default
-    // runtime may replace this
-    vm.sched.io_poll = revo.std_net.pollIoWaiters;
 
     try vm.sched.fibers.append(runtime.alloc, .{
         .id = 0,
@@ -263,9 +261,6 @@ pub fn init(runtime: revo.Runtime) !VM {
 
     try revo.std_lib.register_stdlib(&vm);
     try revo.lang.proc.register(&vm);
-
-    // leave async backend nil unless explicitly configured
-    vm.runtime.async_backend = null;
 
     return vm;
 }
@@ -330,6 +325,7 @@ pub fn deinit(self: *VM) void {
     self.clearProgramDebugInfo();
     self.clearPanicMessage();
     self.clearRuntimeMessage();
+    revo.async_backend_impl.deinit(&self.runtime.async_backend);
     self.sched.deinit();
     self.constants.deinit(self.runtime.alloc);
     self.globals.deinit();
