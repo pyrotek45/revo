@@ -342,7 +342,7 @@ const Parser = struct {
             .kw_yield => self.parseYield(token),
             .lsquiggly => self.parseTable(token),
             .kw_type => {
-                if (self.check(.ident)) return self.parseTypeAlias(token);
+                if (self.check(.ident)) return self.parseDecl(token, false);
                 return self.allocExpr(token.span(), .{ .ident = token.text });
             },
             .kw_macro => self.parseMacro(token),
@@ -1515,4 +1515,76 @@ test "parses @doc annotation on function declaration" {
     const value = root.expr.decl.inner.expr.con_expr.value;
     try std.testing.expect(value.expr == .fn_expr);
     try std.testing.expectEqualStrings("adds", value.expr.fn_expr.doc.?);
+}
+
+test "pub and private decls keep flags across declaration forms" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    const src =
+        \\ pub const pcon = 1
+        \\ const con = 2
+        \\ pub let plet = 3
+        \\ let letv = 4
+        \\ pub global pglob = 5
+        \\ global glob = 6
+        \\ pub mod pm do end
+        \\ mod m do end
+        \\ pub fn pf() 7
+        \\ fn f() 8
+        \\ pub struct PS {}
+        \\ struct S {}
+        \\ pub test "pt" do end
+        \\ test "t" do end
+        \\ pub suite "ps" do end
+        \\ suite "s" do end
+        \\ pub proc pp(x) x
+        \\ proc p(x) x
+        \\ pub type PA = number
+        \\ type A = number
+    ;
+
+    const root = try parseTokens(alloc, try lexer.lex(alloc, src));
+    try std.testing.expect(root.expr == .block);
+    try std.testing.expectEqual(@as(usize, 20), root.expr.block.len);
+
+    const Expect = struct {
+        kind: ast.DeclKind,
+        is_pub: bool,
+        tag: std.meta.Tag(Expr),
+    };
+
+    const expected = [_]Expect{
+        .{ .kind = .con, .is_pub = true, .tag = .con_expr },
+        .{ .kind = .con, .is_pub = false, .tag = .con_expr },
+        .{ .kind = .let, .is_pub = true, .tag = .let_expr },
+        .{ .kind = .let, .is_pub = false, .tag = .let_expr },
+        .{ .kind = .global, .is_pub = true, .tag = .global },
+        .{ .kind = .global, .is_pub = false, .tag = .global },
+        .{ .kind = .mod, .is_pub = true, .tag = .mod_expr },
+        .{ .kind = .mod, .is_pub = false, .tag = .mod_expr },
+        .{ .kind = .con, .is_pub = true, .tag = .con_expr },
+        .{ .kind = .con, .is_pub = false, .tag = .con_expr },
+        .{ .kind = .struct_decl, .is_pub = true, .tag = .struct_def },
+        .{ .kind = .struct_decl, .is_pub = false, .tag = .struct_def },
+        .{ .kind = .struct_decl, .is_pub = true, .tag = .test_block },
+        .{ .kind = .struct_decl, .is_pub = false, .tag = .test_block },
+        .{ .kind = .struct_decl, .is_pub = true, .tag = .test_suite },
+        .{ .kind = .struct_decl, .is_pub = false, .tag = .test_suite },
+        .{ .kind = .fn_decl, .is_pub = true, .tag = .proc_macro },
+        .{ .kind = .fn_decl, .is_pub = false, .tag = .proc_macro },
+        .{ .kind = .type_alias_decl, .is_pub = true, .tag = .type_alias },
+        .{ .kind = .type_alias_decl, .is_pub = false, .tag = .type_alias },
+    };
+
+    for (expected, root.expr.block, 0..) |want, item, idx| {
+        try std.testing.expect(item.expr == .decl);
+        try std.testing.expectEqual(want.kind, item.expr.decl.kind);
+        try std.testing.expectEqual(want.is_pub, item.expr.decl.is_pub);
+        try std.testing.expect(item.expr.decl.inner.expr == want.tag);
+        if (idx == 8 or idx == 9) {
+            try std.testing.expect(item.expr.decl.inner.expr.con_expr.value.expr == .fn_expr);
+        }
+    }
 }
