@@ -518,3 +518,354 @@ test "atoms<->any relationship" {
         \\ get_num()
     , 42);
 }
+
+//
+// typed const bindings
+//
+test "typed const binding int" {
+    try t.top_number(
+        \\ const x: int = 42
+        \\ x
+    , 42);
+}
+
+test "typed const binding string" {
+    try t.top_string(
+        \\ const s: string = "hello"
+        \\ s
+    , "hello");
+}
+
+test "typed const binding float" {
+    try t.top_number(
+        \\ const x: float = 3.14
+        \\ x
+    , 3.14);
+}
+
+test "typed const binding rejects wrong type" {
+    try t.expectCompileError(
+        \\ const x: int = "hello"
+    , .ParseError);
+}
+
+//
+// typed global bindings
+//
+test "typed global binding int" {
+    try t.top_number(
+        \\ global x: int = 42
+        \\ x
+    , 42);
+}
+
+test "typed global binding float" {
+    try t.top_number(
+        \\ global x: float = 1.5
+        \\ x
+    , 1.5);
+}
+
+//
+// type alias at call sites
+
+//
+// type alias at call sites
+//
+test "type alias used in function param" {
+    try t.top_number(
+        \\ type MyInt = int
+        \\ const double = fn(x: MyInt) -> MyInt x * 2
+        \\ double(21)
+    , 42);
+}
+
+test "type alias used in binding" {
+    try t.top_string(
+        \\ type Name = string
+        \\ let s: Name = "alice"
+        \\ s
+    , "alice");
+}
+
+test "type alias int | float accepts int" {
+    try t.top_number(
+        \\ type Num = int | float
+        \\ const add = fn(a: Num, b: Num) -> float a + b
+        \\ add(3, 4)
+    , 7);
+}
+
+test "type alias int | float accepts float" {
+    try t.top_number(
+        \\ type Num = int | float
+        \\ const add = fn(a: Num, b: Num) -> float a + b
+        \\ add(3.5, 4.2)
+    , 7.7);
+}
+
+test "type alias rejects type not in union" {
+    try t.expectCompileError(
+        \\ type MyInt = int
+        \\ const x: MyInt = "string"
+    , .ParseError);
+}
+
+//
+// named union variants with payloads
+//
+test "named union variant ok result" {
+    try t.top_atom(
+        \\ type Result = :ok | :err
+        \\ match 0
+        \\ | 0 => :ok
+        \\ | _ => :err
+    , "ok");
+}
+
+test "named union variant err result" {
+    try t.top_atom(
+        \\ type Result = :ok | :err
+        \\ match 1
+        \\ | 0 => :ok
+        \\ | _ => :err
+    , "err");
+}
+
+//
+// return type validation
+//
+test "return type mismatch detects wrong explicit return" {
+    try t.expectCompileError(
+        \\ fn get() -> int do
+        \\     return "hello"
+        \\ end
+    , .ParseError);
+}
+
+test "coercion in return type int to float" {
+    try t.top_number(
+        \\ fn get() -> float do
+        \\     return 42
+        \\ end
+        \\ get()
+    , 42);
+}
+
+test "explicit return matches return type" {
+    try t.top_number(
+        \\ fn get() -> int do
+        \\     return 99
+        \\ end
+        \\ get()
+    , 99);
+}
+
+//
+// if/else branch type unification
+//
+test "if/else typed branches unify to number" {
+    try t.top_number(
+        \\ let x: int = 5
+        \\ let y = if x > 0 10 else 20
+        \\ y
+    , 10);
+}
+
+test "if/else typed branches unify to string" {
+    try t.top_string(
+        \\ let x: int = 0
+        \\ let y = if x > 0 "pos" else "non-pos"
+        \\ y
+    , "non-pos");
+}
+
+//
+// tuple type inference
+//
+test "tuple type inference and access" {
+    try t.top_number(
+        \\ let t = (1, "hi", 3.5)
+        \\ t[0] + t[2]
+    , 4.5);
+}
+
+test "tuple type with different types" {
+    try t.top_number(
+        \\ let t = (10, 20, 30)
+        \\ t[0] + t[1] + t[2]
+    , 60);
+}
+
+test "nested tuple type" {
+    try t.top_number(
+        \\ let t = ((1, 2), (3, 4))
+        \\ t[0][0] + t[1][1]
+    , 5);
+}
+
+//
+// string indexing
+//
+test "string indexing returns string" {
+    try t.top_string(
+        \\ let s: string = "hello"
+        \\ s[0]
+    , "h");
+}
+
+//
+// struct with nested struct fields
+//
+test "struct field access returns correct type" {
+    try t.top_number(
+        \\ struct User { name: string = "", age: int = 0 }
+        \\ let u = User { name = "alice", age = 30 }
+        \\ u.age + 12
+    , 42);
+}
+
+//
+// any type accepts everything
+//
+test "any typed param accepts int" {
+    try t.top_number(
+        \\ const id = fn(x: any) x
+        \\ id(42)
+    , 42);
+}
+
+test "any typed param accepts string" {
+    try t.top_string(
+        \\ const id = fn(x: any) x
+        \\ id("hello")
+    , "hello");
+}
+
+test "any typed param accepts table" {
+    try t.top_number(
+        \\ const get = fn(t: any, k: any) t[k]
+        \\ get({x = 99}, :x)
+    , 99);
+}
+
+test "any typed binding accepts anything" {
+    try t.top_number(
+        \\ let x: any = 42
+        \\ let y: any = "str"
+        \\ let z: any = {a = 1}
+        \\ x
+    , 42);
+}
+
+//
+// block type propagation
+//
+test "block type propagates last expression type" {
+    try t.top_number(
+        \\ let x: int = do
+        \\     let a = 1
+        \\     let b = 2
+        \\     a + b
+        \\ end
+        \\ x
+    , 3);
+}
+
+test "block type error on type mismatch" {
+    try t.expectCompileError(
+        \\ let x: int = do
+        \\     "hello"
+        \\ end
+    , .ParseError);
+}
+
+//
+// chained typed ops preserve specialization
+//
+test "chained typed math emits add_int" {
+    var vm = try VM.init(t.runtime());
+    defer vm.deinit();
+
+    const built = try lang.build(&vm, .{
+        .text =
+        \\ let a: int = 1
+        \\ let b: int = 2
+        \\ let c: int = 3
+        \\ a + b * c
+        ,
+    }, .{});
+    try std.testing.expect(built == .ok);
+    defer vm.runtime.alloc.free(built.ok.instructions);
+    defer vm.runtime.alloc.free(built.ok.spans);
+
+    var saw_add_int = false;
+    var saw_mul_spec = false;
+    for (built.ok.instructions) |inst| {
+        if (inst.op == .add_int) saw_add_int = true;
+        if (inst.op == .mul_int) saw_mul_spec = true;
+    }
+    try std.testing.expect(saw_add_int);
+    try std.testing.expect(saw_mul_spec);
+}
+
+//
+// type alias union with multiple atom variants
+//
+test "multi-atom union alias in match" {
+    try t.top_atom(
+        \\ type Color = :red | :green | :blue
+        \\ match :red
+        \\ | :red => :green
+        \\ | :green => :red
+        \\ | _ => :blue
+    , "green");
+}
+
+test "multi-atom union fn param accepts valid atom" {
+    try t.top_atom(
+        \\ type Color = :red | :green
+        \\ fn pick(c: Color) c
+        \\ pick(:green)
+    , "green");
+}
+
+//
+// void / nil type
+//
+test "nil typed fn body" {
+    try t.top_nil(
+        \\ fn nothing() do :nil end
+        \\ nothing()
+    );
+}
+
+test "typed binding with void returns nil" {
+    try t.top_nil(
+        \\ let x: any = :nil
+        \\ x
+    );
+}
+
+//
+// bool type
+//
+test "bool typed binding" {
+    try t.top_true(
+        \\ let b: bool = 1 == 1
+        \\ b
+    );
+}
+
+test "bool typed binding rejects non-bool" {
+    try t.expectCompileError(
+        \\ let b: bool = 42
+    , .ParseError);
+}
+
+test "not operator on bool stays bool" {
+    try t.top_false(
+        \\ let b: bool = not (1 == 1)
+        \\ b
+    );
+}
