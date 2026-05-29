@@ -124,7 +124,8 @@ pub const Compiler = struct {
     failure: ?LowerFailure = null,
     failure_message: []const u8 = "",
     failure_message_owned: bool = false,
-    failure_parts: [2]diagnostic.Part = [_]diagnostic.Part{diagnostic.Part{ .@"error" = "" }} ** 2,
+    failure_parts: [16]diagnostic.Part = undefined,
+    failure_part_len: usize = 0,
     spans: std.ArrayList(ast.Span),
     active_span: ast.Span = .{
         .start = 0,
@@ -366,7 +367,7 @@ pub const Compiler = struct {
             },
             .and_expr => |v| try flow.compileAnd(self, v.left, v.right),
             .or_expr => |v| try flow.compileOr(self, v.left, v.right),
-            .call => |call| try self.compileCall(expr, call),
+            .call => |call| try self.compileCall(call),
             .field => |field| {
                 // typed struct field?
                 if (self.resolveTypedStructFieldOffset(field.object, field.name)) |off| {
@@ -530,12 +531,11 @@ pub const Compiler = struct {
 
     pub fn compileCall(
         self: *Compiler,
-        expr: *const Node,
         call: anytype,
     ) InternalLowerError!void {
         switch (call.callee.expr) {
             .field => |field| {
-                try self.validateTypedCall(expr, call.callee, call.args);
+                try self.validateTypedCall(call.callee, call.args);
                 // method call desugar: obj:method(args)
                 const desugared = call.args.len > 0 and
                     call.args[0] == field.object;
@@ -566,7 +566,7 @@ pub const Compiler = struct {
                 }
             },
             .index => |index| {
-                try self.validateTypedCall(expr, call.callee, call.args);
+                try self.validateTypedCall(call.callee, call.args);
                 try self.compile(index.object, true);
                 try self.compile(index.key, true);
                 for (call.args) |arg| try self.compile(arg, true);
@@ -577,7 +577,6 @@ pub const Compiler = struct {
             .ident => |fn_name| {
                 const reordered_args = try validateCallArgs(
                     self,
-                    expr,
                     fn_name,
                     call.args,
                 );
@@ -590,7 +589,7 @@ pub const Compiler = struct {
                     call.args;
 
                 if (reordered_args.ptr == call.args.ptr) {
-                    try self.validateTypedCall(expr, call.callee, args_to_compile);
+                    try self.validateTypedCall(call.callee, args_to_compile);
                 }
 
                 for (args_to_compile) |arg| {
@@ -613,7 +612,7 @@ pub const Compiler = struct {
                 );
             },
             .fn_expr => {
-                try self.validateTypedCall(expr, call.callee, call.args);
+                try self.validateTypedCall(call.callee, call.args);
                 try self.compile(call.callee, true);
                 for (call.args) |arg| try self.compile(arg, true);
                 try emit.emit(
@@ -640,7 +639,6 @@ pub const Compiler = struct {
 
     fn validateTypedCall(
         self: *Compiler,
-        call_expr: *const Node,
         callee: *const Node,
         args: []const *Node,
     ) InternalLowerError!void {
@@ -674,6 +672,15 @@ pub const Compiler = struct {
             ) else try formatCallSignatureTypesOnly(self.alloc, fn_name, expected_types);
             defer self.alloc.free(expected_sig);
 
+            var extra_parts = try std.ArrayList(diagnostic.Part).initCapacity(
+                self.alloc,
+                if (args.len > sig.params.len) 1 else 0,
+            );
+            defer extra_parts.deinit(self.alloc);
+            if (args.len > sig.params.len) {
+                try self.appendUnexpectedArgPart(args, sig.params.len, &extra_parts);
+            }
+
             const msg = try std.fmt.allocPrint(
                 self.alloc,
                 "{s} expects {d} argument(s), got {d}\ngot: {s}\nwant: {s}",
@@ -685,7 +692,7 @@ pub const Compiler = struct {
                     expected_sig,
                 },
             );
-            return self.fail(.ParseError, call_expr, msg);
+            return self.setFailureParts(.ParseError, null, msg, extra_parts.items);
         }
 
         for (args, sig.params, 0..) |arg, expected_type, idx| {
@@ -891,7 +898,6 @@ pub const Compiler = struct {
 
     fn validateCallArgs(
         self: *Compiler,
-        call_expr: *const Node,
         fn_name: []const u8,
         args: []const *Node,
     ) InternalLowerError![]const *Node {
@@ -932,7 +938,19 @@ pub const Compiler = struct {
                     expected_sig,
                 },
             );
-            return self.fail(.ParseError, call_expr, msg);
+            var extra_parts = try std.ArrayList(diagnostic.Part).initCapacity(
+                self.alloc,
+                if (reordered_args.len > sig.param_types.len) 1 else 0,
+            );
+            defer extra_parts.deinit(self.alloc);
+            if (reordered_args.len > sig.param_types.len) {
+                try self.appendUnexpectedArgPart(
+                    reordered_args,
+                    sig.param_types.len,
+                    &extra_parts,
+                );
+            }
+            return self.setFailureParts(.ParseError, null, msg, extra_parts.items);
         }
 
         const min_args = @min(sig.param_types.len, reordered_args.len);
@@ -1404,6 +1422,58 @@ pub const Compiler = struct {
         return types.typeName(t);
     }
 
+    fn appendUnexpectedArgPart(
+        self: *Compiler,
+        args: []const *const Node,
+        start_idx: usize,
+        parts: *std.ArrayList(diagnostic.Part),
+    ) !void {
+        if (start_idx >= args.len) return;
+        const merged = blk: {
+            var span = args[start_idx].span;
+            for (args[start_idx + 1 ..]) |arg| span = ast.Span.merge(span, arg.span);
+            break :blk span;
+        };
+        try parts.append(self.alloc, .{
+            .span = .{
+                .span = merged,
+                .role = .secondary,
+                .message = "unexpected args",
+            },
+        });
+    }
+
+    fn setFailureParts(
+        self: *Compiler,
+        kind: LowerErrorKind,
+        primary_span: ?ast.Span,
+        message: []const u8,
+        extra_parts: []const diagnostic.Part,
+    ) error{LoweringFailed} {
+        const owned_msg = self.runtime_alloc.dupe(u8, message) catch "out of memory while formatting error message";
+        if (self.failure_message_owned) self.runtime_alloc.free(self.failure_message);
+        self.failure_message = owned_msg;
+        self.failure_message_owned = owned_msg.ptr != message.ptr;
+
+        std.debug.assert(extra_parts.len + 1 <= self.failure_parts.len);
+        self.failure_parts[0] = diagnostic.Part{ .@"error" = owned_msg };
+        var part_len: usize = 1;
+        if (primary_span) |span| {
+            self.failure_parts[1] = .{ .span = .{ .span = span, .role = .primary } };
+            part_len += 1;
+        }
+        for (extra_parts, 0..) |part, idx| self.failure_parts[part_len + idx] = part;
+        self.failure_part_len = part_len + extra_parts.len;
+        self.failure = .{
+            .kind = kind,
+            .report = .{
+                .parts = self.failure_parts[0..self.failure_part_len],
+                .message = owned_msg,
+            },
+        };
+        return error.LoweringFailed;
+    }
+
     fn validateReturnType(self: *Compiler, val: *const Node) !void {
         const fn_state = state_mod.currentFunctionState(self) orelse return;
         const declared = fn_state.return_type orelse return;
@@ -1452,6 +1522,6 @@ pub const Compiler = struct {
         expr: *const Node,
         message: []const u8,
     ) error{LoweringFailed} {
-        return emit.fail(self, kind, expr, message);
+        return self.setFailureParts(kind, expr.span, message, &.{});
     }
 };
