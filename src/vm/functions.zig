@@ -88,7 +88,7 @@ pub const Function = union(enum) {
     pub fn name(self: Function) []const u8 {
         return switch (self) {
             .closure => |f| f.name,
-            .native => "<native>",
+            .native => |f| if (f.name.len > 0) f.name else "<native>",
             .c_function => |f| f.name,
         };
     }

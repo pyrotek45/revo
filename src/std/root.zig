@@ -68,6 +68,7 @@ pub fn register_stdlib(vm: *revo.VM) !void {
 
 pub const NativeFn = *const fn (args: []const Data, vm: *VM) anyerror!NativeResult;
 pub const NativeFunc = struct {
+    name: []const u8 = "",
     arity: usize,
     variadic: bool = false,
     param_types: []const TypeSpec,
@@ -177,7 +178,9 @@ pub fn isResultTag(value: Data, expected: mem.AtomID, vm: *VM) bool {
 
 pub fn registerFunctions(vm: *VM, funcs: []const FuncDef) !void {
     for (funcs) |f| {
-        const id = try vm.functions.create(.{ .native = f.f });
+        var func = f.f;
+        func.name = f.name;
+        const id = try vm.functions.create(.{ .native = func });
         const atom = try vm.internAtom(f.name);
         const val = Data.new.function(id);
         try vm.globals.put(atom, val);
@@ -917,7 +920,10 @@ pub fn registerMetatable(
     const mt_id = try vm.tables.create();
     const mt = try vm.tables.get(mt_id);
     inline for (methods) |method| {
-        const fn_id = try vm.functions.create(.{ .native = method.func });
+        var func = method.func;
+        if (method.key == .named) func.name = method.key.named;
+
+        const fn_id = try vm.functions.create(.{ .native = func });
         const key_atom = switch (method.key) {
             .named => |name| try vm.internAtom(name),
             .core => |atom| revo.core_atoms.atom_id(atom),

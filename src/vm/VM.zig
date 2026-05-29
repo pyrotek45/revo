@@ -650,7 +650,7 @@ fn frameName(self: *VM, closure_id: ?mem.FunctionID) []const u8 {
     const func = self.functions.get(id) catch return "<dead>";
     return switch (func.*) {
         .closure => |closure| if (std.mem.eql(u8, closure.name, "__main")) "<module>" else closure.name,
-        .native => "<native>",
+        .native => |f| f.name,
         .c_function => "<c func>",
     };
 }
