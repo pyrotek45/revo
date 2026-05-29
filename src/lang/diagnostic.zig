@@ -57,6 +57,72 @@ pub const Report = struct {
         if (self.owned_message and self.message.len != 0) alloc.free(self.message);
         if (self.owned_parts) alloc.free(self.parts);
     }
+
+    pub fn deinitOwned(report: Report, alloc: std.mem.Allocator) void {
+        if (report.owned_message and report.message.len != 0) alloc.free(report.message);
+
+        if (report.owned_parts) {
+            for (report.parts) |part| {
+                switch (part) {
+                    .@"error" => {},
+                    .tip => |tip| alloc.free(tip),
+                    .warn => |warn| alloc.free(warn),
+                    .note => |note| alloc.free(note),
+                    .span => |span| {
+                        if (span.message.len != 0) alloc.free(span.message);
+                        if (span.source_name) |source_name| alloc.free(source_name);
+                        if (span.source) |source| alloc.free(source);
+                    },
+                    .trace => |frame| {
+                        alloc.free(frame.function_name);
+                        if (frame.source_name) |source_name| alloc.free(source_name);
+                        if (frame.source) |source| alloc.free(source);
+                    },
+                }
+            }
+            alloc.free(report.parts);
+        }
+    }
+
+    pub fn copy(
+        report: Report,
+        alloc: std.mem.Allocator,
+    ) !Report {
+        const message = try alloc.dupe(u8, report.message);
+        errdefer alloc.free(message);
+        const parts = try alloc.dupe(Part, report.parts);
+        errdefer alloc.free(parts);
+
+        for (parts) |*part| switch (part.*) {
+            .@"error" => part.* = .{ .@"error" = message },
+            .tip => |tip| part.* = .{ .tip = try alloc.dupe(u8, tip) },
+            .warn => |warn| part.* = .{ .warn = try alloc.dupe(u8, warn) },
+            .note => |note| part.* = .{ .note = try alloc.dupe(u8, note) },
+            .span => |span| {
+                var copied = span;
+                if (copied.message.len != 0) copied.message = try alloc.dupe(u8, copied.message);
+                if (copied.source_name) |source_name| copied.source_name = try alloc.dupe(u8, source_name);
+                if (copied.source) |source| copied.source = try alloc.dupe(u8, source);
+                part.* = .{ .span = copied };
+            },
+            .trace => |frame| {
+                var copied = frame;
+                copied.function_name = try alloc.dupe(u8, copied.function_name);
+                if (copied.source_name) |source_name| copied.source_name = try alloc.dupe(u8, source_name);
+                if (copied.source) |source| copied.source = try alloc.dupe(u8, source);
+                part.* = .{ .trace = copied };
+            },
+        };
+
+        return .{
+            .parts = parts,
+            .message = message,
+            .source_name = null,
+            .source = null,
+            .owned_message = true,
+            .owned_parts = true,
+        };
+    }
 };
 
 pub fn Diagnostic(comptime Kind: type) type {

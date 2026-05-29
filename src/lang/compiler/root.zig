@@ -82,17 +82,10 @@ pub fn lowerExprArtifactReport(
     compiler.compileRoot(expr) catch |err| switch (err) {
         error.LoweringFailed => {
             const failure = compiler.failure orelse return error.LoweringFailed;
-            const msg = try compiler.runtime_alloc.dupe(u8, failure.report.message);
-            const parts = try compiler.runtime_alloc.dupe(diagnostic.Part, failure.report.parts);
-            parts[0] = diagnostic.Part{ .@"error" = msg };
+            const report = try failure.report.copy(compiler.runtime_alloc);
             return .{ .err = .{
                 .kind = failure.kind,
-                .report = .{
-                    .parts = parts,
-                    .message = msg,
-                    .owned_message = true,
-                    .owned_parts = true,
-                },
+                .report = report,
             } };
         },
         else => return err,
@@ -663,14 +656,12 @@ pub const Compiler = struct {
                 named.param_names,
                 actual_types,
             ) else try formatCallSignatureTypesOnly(self.alloc, fn_name, actual_types);
-            defer self.alloc.free(actual_sig);
             const expected_sig = if (fn_sig) |named| try formatCallSignatureWithNames(
                 self.alloc,
                 fn_name,
                 named.param_names,
                 expected_types,
             ) else try formatCallSignatureTypesOnly(self.alloc, fn_name, expected_types);
-            defer self.alloc.free(expected_sig);
 
             var extra_parts = try std.ArrayList(diagnostic.Part).initCapacity(
                 self.alloc,
@@ -683,15 +674,15 @@ pub const Compiler = struct {
 
             const msg = try std.fmt.allocPrint(
                 self.alloc,
-                "{s} expects {d} argument(s), got {d}\ngot: {s}\nwant: {s}",
+                "{s} expects {d} argument(s), got {d}",
                 .{
                     fn_name,
                     sig.params.len,
                     args.len,
-                    actual_sig,
-                    expected_sig,
                 },
             );
+            try extra_parts.append(self.alloc, .{ .note = actual_sig });
+            try extra_parts.append(self.alloc, .{ .note = expected_sig });
             return self.setFailureParts(.ParseError, null, msg, extra_parts.items);
         }
 
@@ -714,49 +705,57 @@ pub const Compiler = struct {
                         named.param_names,
                         actual_types,
                     ) else try formatCallSignatureTypesOnly(self.alloc, fn_name, actual_types);
-                    defer self.alloc.free(actual_sig);
                     const expected_sig = if (fn_sig) |named| try formatCallSignatureWithNames(
                         self.alloc,
                         fn_name,
                         named.param_names,
                         expected_types,
                     ) else try formatCallSignatureTypesOnly(self.alloc, fn_name, expected_types);
-                    defer self.alloc.free(expected_sig);
 
                     const display_name = if (fn_sig) |named| blk: {
                         if (idx < named.param_names.len) break :blk named.param_names[idx];
                         break :blk null;
                     } else null;
 
-                    const msg = if (display_name) |name| blk: {
+                    const actual_type = type_check.inferExprType(self, arg);
+                    const headline = if (display_name) |name| blk: {
                         break :blk try std.fmt.allocPrint(
                             self.alloc,
-                            "argument {d} (`{s}`) to `{s}` expects {s}, got {s}\n  got: {s}\n want: {s}",
+                            "argument {d} (`{s}`) to `{s}` expects {s}, got {s}",
                             .{
                                 idx + 1,
                                 name,
                                 fn_name,
                                 types.typeName(expected_type),
-                                types.typeName(type_check.inferExprType(self, arg)),
-                                actual_sig,
-                                expected_sig,
+                                types.typeName(actual_type),
                             },
                         );
                     } else blk: {
                         break :blk try std.fmt.allocPrint(
                             self.alloc,
-                            "argument {d} to `{s}` expects {s}, got {s}\n  got: {s}\n want: {s}",
+                            "argument {d} to `{s}` expects {s}, got {s}",
                             .{
                                 idx + 1,
                                 fn_name,
                                 types.typeName(expected_type),
-                                types.typeName(type_check.inferExprType(self, arg)),
-                                actual_sig,
-                                expected_sig,
+                                types.typeName(actual_type),
                             },
                         );
                     };
-                    return self.fail(.ParseError, arg, msg);
+
+                    var extra_parts = try std.ArrayList(diagnostic.Part).initCapacity(
+                        self.alloc,
+                        2,
+                    );
+                    defer extra_parts.deinit(self.alloc);
+                    try extra_parts.append(self.alloc, .{ .note = actual_sig });
+                    try extra_parts.append(self.alloc, .{ .note = expected_sig });
+                    return self.setFailureParts(
+                        .ParseError,
+                        .{ .span = arg.span, .role = .primary, .message = "wrong type!" },
+                        headline,
+                        extra_parts.items,
+                    );
                 },
             };
         }
@@ -917,7 +916,6 @@ pub const Compiler = struct {
                 sig.param_names,
                 expected_types,
             );
-            defer self.alloc.free(expected_sig);
 
             // all actual argument types regardless of argc
             const actual_sig = try formatCallSignatureTypesOnly(
@@ -925,19 +923,7 @@ pub const Compiler = struct {
                 fn_name,
                 actual_types,
             );
-            defer self.alloc.free(actual_sig);
 
-            const msg = try std.fmt.allocPrint(
-                self.alloc,
-                "call to `{s}` expects {d} argument(s), got {d}\n  got: {s}\n want: {s}",
-                .{
-                    fn_name,
-                    sig.param_types.len,
-                    reordered_args.len,
-                    actual_sig,
-                    expected_sig,
-                },
-            );
             var extra_parts = try std.ArrayList(diagnostic.Part).initCapacity(
                 self.alloc,
                 if (reordered_args.len > sig.param_types.len) 1 else 0,
@@ -950,6 +936,17 @@ pub const Compiler = struct {
                     &extra_parts,
                 );
             }
+            try extra_parts.append(self.alloc, .{ .note = actual_sig });
+            try extra_parts.append(self.alloc, .{ .note = expected_sig });
+            const msg = try std.fmt.allocPrint(
+                self.alloc,
+                "call to `{s}` expects {d} argument(s), got {d}",
+                .{
+                    fn_name,
+                    sig.param_types.len,
+                    reordered_args.len,
+                },
+            );
             return self.setFailureParts(.ParseError, null, msg, extra_parts.items);
         }
 
@@ -982,29 +979,41 @@ pub const Compiler = struct {
                             sig.param_names,
                             actual_types,
                         );
-                        defer self.alloc.free(actual_sig);
                         const expected_sig = try formatCallSignatureWithNames(
                             self.alloc,
                             fn_name,
                             sig.param_names,
                             expected_types_all,
                         );
-                        defer self.alloc.free(expected_sig);
 
-                        const msg = try std.fmt.allocPrint(
+                        const headline = try std.fmt.allocPrint(
                             self.alloc,
-                            "argument {d} (`{s}`) to `{s}` expects {s}, got {s}\n  got: {s}\n want: {s}",
+                            "argument {d} (`{s}`) to `{s}` expects {s}, got {s}",
                             .{
                                 i + 1,
                                 sig.param_names[i],
                                 fn_name,
                                 expected_type,
                                 types.typeName(actual_type),
-                                actual_sig,
-                                expected_sig,
                             },
                         );
-                        return self.fail(.ParseError, reordered_args[i], msg);
+                        var extra_parts = try std.ArrayList(diagnostic.Part).initCapacity(
+                            self.alloc,
+                            2,
+                        );
+                        defer extra_parts.deinit(self.alloc);
+                        try extra_parts.append(self.alloc, .{ .note = actual_sig });
+                        try extra_parts.append(self.alloc, .{ .note = expected_sig });
+                        return self.setFailureParts(
+                            .ParseError,
+                            .{
+                                .span = reordered_args[i].span,
+                                .role = .primary,
+                                .message = "wrong type!",
+                            },
+                            headline,
+                            extra_parts.items,
+                        );
                     },
                 };
             }
@@ -1161,22 +1170,10 @@ pub const Compiler = struct {
         temp_compiler.compileRoot(expr) catch |err| switch (err) {
             error.LoweringFailed => {
                 if (temp_compiler.failure) |nested_failure| {
-                    const msg = try self.runtime_alloc.dupe(u8, nested_failure.report.message);
-                    const parts = try self.runtime_alloc.dupe(
-                        diagnostic.Part,
-                        nested_failure.report.parts,
-                    );
-                    parts[0] = diagnostic.Part{ .@"error" = msg };
+                    const report = try nested_failure.report.copy(self.runtime_alloc);
                     self.failure = .{
                         .kind = nested_failure.kind,
-                        .report = .{
-                            .parts = parts,
-                            .message = msg,
-                            .source_name = nested_failure.report.source_name,
-                            .source = nested_failure.report.source,
-                            .owned_message = true,
-                            .owned_parts = true,
-                        },
+                        .report = report,
                     };
                 } else unreachable;
                 return error.LoweringFailed;
@@ -1446,7 +1443,7 @@ pub const Compiler = struct {
     fn setFailureParts(
         self: *Compiler,
         kind: LowerErrorKind,
-        primary_span: ?ast.Span,
+        primary_span: ?diagnostic.SpanPart,
         message: []const u8,
         extra_parts: []const diagnostic.Part,
     ) error{LoweringFailed} {
@@ -1459,7 +1456,7 @@ pub const Compiler = struct {
         self.failure_parts[0] = diagnostic.Part{ .@"error" = owned_msg };
         var part_len: usize = 1;
         if (primary_span) |span| {
-            self.failure_parts[1] = .{ .span = .{ .span = span, .role = .primary } };
+            self.failure_parts[1] = .{ .span = span };
             part_len += 1;
         }
         for (extra_parts, 0..) |part, idx| self.failure_parts[part_len + idx] = part;
@@ -1522,6 +1519,6 @@ pub const Compiler = struct {
         expr: *const Node,
         message: []const u8,
     ) error{LoweringFailed} {
-        return self.setFailureParts(kind, expr.span, message, &.{});
+        return self.setFailureParts(kind, .{ .span = expr.span, .role = .primary }, message, &.{});
     }
 };

@@ -26,9 +26,9 @@ for y in 0..1000
 
 print(acc)
 
-const id = fn(x, y) x * 2
+const id = fn(x: int, y: int) x * 2
 id(1, y = 2)
-id(1, 2, 3, 4, 5)
+id(1, "hi")
 
 # if :true 1 else "asdf"
 # type A = (:ok, any) | (:err, atom)

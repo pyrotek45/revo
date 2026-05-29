@@ -160,7 +160,7 @@ pub fn renderError(allocator: std.mem.Allocator, writer: *std.Io.Writer, source:
 pub fn deinitError(alloc: std.mem.Allocator, err: Error) void {
     switch (err) {
         .parse => |failure| failure.deinit(alloc),
-        .lower => |failure| failure.deinit(alloc),
+        .lower => |failure| failure.report.deinitOwned(alloc),
     }
 }
 

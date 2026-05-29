@@ -1012,7 +1012,7 @@ test "compile report includes function call argument detail" {
         .ParseError,
         2,
         5,
-        "argument 1 (`x`) to `id` expects int, got string\n  got: id(x: string)\n want: id(x: int)",
+        "argument 1 (`x`) to `id` expects int, got string",
     );
 }
 
@@ -1842,7 +1842,7 @@ test "typed function alias call is checked" {
         .ParseError,
         3,
         4,
-        "argument 1 to `call` expects int, got string\n  got: call(string)\n want: call(int)",
+        "argument 1 to `call` expects int, got string",
     );
 }
 
