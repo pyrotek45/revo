@@ -224,13 +224,11 @@ pub fn compileFor(
     var value_storage: ?VarStorage = null;
     var index_storage: ?VarStorage = null;
     if (!ast.isDiscardName(params[0].name)) {
-        const value_slot = try state.declareLocal(self, params[0].name, true);
-        state.markLocalInitialized(self, value_slot);
+        const value_slot = try state.declareLocal(self, params[0].name, false);
         value_storage = .{ .local = value_slot };
     }
     if (needs_index) {
-        const index_slot = try state.declareLocal(self, params[1].name, true);
-        state.markLocalInitialized(self, index_slot);
+        const index_slot = try state.declareLocal(self, params[1].name, false);
         index_storage = .{ .local = index_slot };
     }
 
@@ -248,14 +246,18 @@ pub fn compileFor(
     try emitForValueLoad(self, iter_storage, idx_storage);
 
     if (value_storage) |storage| {
-        try emitStorageStore(self, storage, false);
+        const value_slot: LocalSlot = @intCast(storage.local);
+        state.markLocalInitialized(self, value_slot);
+        try emit.emit(self, .bind_local, value_slot);
     } else {
         try emit.regRelease(self);
     }
     if (needs_index) {
         try emitStorageLoad(self, idx_storage);
         if (index_storage) |storage| {
-            try emitStorageStore(self, storage, false);
+            const index_slot: LocalSlot = @intCast(storage.local);
+            state.markLocalInitialized(self, index_slot);
+            try emit.emit(self, .bind_local, index_slot);
         } else {
             try emit.regRelease(self);
         }
