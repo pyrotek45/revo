@@ -46,6 +46,16 @@ const splash_texts = [_][]const u8{
         .haiku => "ladybird is better than gecko",
         else => "woah",
     },
+    blk: {
+        const cpu = builtin.cpu.model.name;
+        if (std.mem.count(u8, cpu, "amd") > 0) {
+            break :blk "intel is better";
+        } else if (std.mem.count(u8, cpu, "intel") > 0) {
+            break :blk "amd is better";
+        } else if (std.mem.count(u8, cpu, "apple") > 0) {
+            break :blk "how's it feel to share ram with vram";
+        }
+    },
 };
 
 fn splashText(seed: usize) []const u8 {
