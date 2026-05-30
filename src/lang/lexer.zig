@@ -478,6 +478,7 @@ const Lexer = struct {
                 continue;
             }
             if (c == '"') {
+                self.pending_error_span = null;
                 const text = try buf.toOwnedSlice(self.alloc);
                 errdefer self.alloc.free(text);
                 return .{

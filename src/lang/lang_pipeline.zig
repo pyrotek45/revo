@@ -17,6 +17,7 @@ pub fn build(vm: *VM, source: Source, opts: BuildOptions) !BuildResult {
         .err => |failure| {
             var diag = failure;
             if (source.name) |name| diag.report.source_name = name;
+            diag.report = try diag.report.copy(vm.runtime.alloc);
             return .{ .err = .{ .parse = diag } };
         },
     };
@@ -159,7 +160,7 @@ pub fn renderError(allocator: std.mem.Allocator, writer: *std.Io.Writer, source:
 
 pub fn deinitError(alloc: std.mem.Allocator, err: Error) void {
     switch (err) {
-        .parse => |failure| failure.deinit(alloc),
+        .parse => |failure| failure.report.deinitOwned(alloc),
         .lower => |failure| failure.report.deinitOwned(alloc),
     }
 }
