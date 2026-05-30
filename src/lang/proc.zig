@@ -30,10 +30,56 @@ pub fn register(vm: *revo.VM) !void {
     try vm.stdlib_globals.put(try vm.internAtom("__proc_apply"), apply_val);
 }
 
+pub const ExpandReport = struct {
+    root: *Node,
+    error_report: ?diagnostic.Report = null,
+};
+
+const ProcFailure = struct {
+    proc_name: []const u8,
+    stage: []const u8,
+    span: ?Span,
+    message: []const u8,
+};
+
+fn buildReport(allocator: std.mem.Allocator, source_name: []const u8, source: []const u8, info: ProcFailure) !diagnostic.Report {
+    var parts: [2]diagnostic.Part = undefined;
+    const slice = if (info.span) |s| blk: {
+        parts[0] = .{ .@"error" = info.message };
+        parts[1] = .{ .span = .{ .span = s, .role = .primary } };
+        break :blk parts[0..2];
+    } else blk: {
+        parts[0] = .{ .@"error" = info.message };
+        break :blk parts[0..1];
+    };
+    const report_source_name = if (source_name.len == 0) "<proc>" else source_name;
+    return .{
+        .message = info.message,
+        .parts = try allocator.dupe(diagnostic.Part, slice),
+        .source_name = report_source_name,
+        .source = source,
+        .owned_parts = true,
+    };
+}
+
 pub fn expandExpr(vm: *revo.VM, allocator: std.mem.Allocator, expr: *Node) ExpandError!*Node {
     var env = ProcEnv.init(allocator);
     defer env.deinit();
     return expandInEnv(vm, allocator, expr, &env, .expand);
+}
+
+pub fn expandExprWithSource(vm: *revo.VM, allocator: std.mem.Allocator, expr: *Node, source_name: []const u8, source: []const u8) !ExpandReport {
+    var env = ProcEnv.init(allocator);
+    defer env.deinit();
+    env.source_name = source_name;
+    env.source = source;
+    const node = expandInEnv(vm, allocator, expr, &env, .expand) catch |err| {
+        if (env.error_info) |info| {
+            return .{ .root = undefined, .error_report = try buildReport(allocator, source_name, source, info) };
+        }
+        return err;
+    };
+    return .{ .root = node };
 }
 
 const ProcDef = struct {
@@ -46,6 +92,9 @@ const ProcEnv = struct {
     allocator: std.mem.Allocator,
     map: std.StringHashMap(ProcDef),
     active: std.ArrayList([]const u8),
+    source_name: []const u8 = "",
+    source: []const u8 = "",
+    error_info: ?ProcFailure = null,
 
     fn init(allocator: std.mem.Allocator) ProcEnv {
         return .{
@@ -65,6 +114,8 @@ const ProcEnv = struct {
         var it = self.map.iterator();
         while (it.next()) |entry| try cloned.map.put(entry.key_ptr.*, entry.value_ptr.*);
         try cloned.active.appendSlice(self.allocator, self.active.items);
+        cloned.source_name = self.source_name;
+        cloned.source = self.source;
         return cloned;
     }
 
@@ -100,9 +151,11 @@ fn expandInEnv(
         .block => |items| blk: {
             var child = try env.clone();
             defer child.deinit();
-            break :blk ast.allocNode(allocator, expr.span, .{
-                .block = try ast.walkSliceWith(allocator, items, ProcCtx, .{ .vm = vm, .env = &child, .mode = mode }),
-            });
+            const walked = ast.walkSliceWith(allocator, items, ProcCtx, .{ .vm = vm, .env = &child, .mode = mode }) catch |err| {
+                if (child.error_info) |info| env.error_info = info;
+                return err;
+            };
+            break :blk ast.allocNode(allocator, expr.span, .{ .block = walked });
         },
         .binding => |binding| expandBinding(vm, allocator, expr.span, binding, env, mode),
         .call => |call| maybeExpandCall(vm, allocator, expr.span, call.callee, call.args, call.implicit_self, env, mode),
@@ -171,7 +224,9 @@ fn maybeExpandCall(
         if (env.map.get(expanded_callee.expr.ident)) |def| {
             if (mode == .runtimeize) return makeRuntimeProcCall(allocator, span, def, expanded_args);
             return evalProcMacro(vm, span, def, expanded_args, env) catch |err| {
-                reportProcExpandError(vm.runtime.alloc, def.name, span, err);
+                if (err != error.RecursiveProcMacro) {
+                    reportProcExpandError(env, def.name, span, err);
+                }
                 return err;
             };
         }
@@ -208,7 +263,10 @@ fn evalProcMacro(
     args: []const *Node,
     env: *ProcEnv,
 ) ExpandError!*Node {
-    if (env.isActive(def.name)) return error.RecursiveProcMacro;
+    if (env.isActive(def.name)) {
+        env.error_info = .{ .proc_name = def.name, .stage = "expand", .span = span, .message = "recursive proc macro expansion" };
+        return error.RecursiveProcMacro;
+    }
     try env.pushActive(def.name);
     defer env.popActive();
 
@@ -228,7 +286,7 @@ fn evalProcMacro(
     const wrapper_fn = try fnNode(allocator, span, &.{def.param}, def.body);
     const call = try callNode(allocator, span, wrapper_fn, &.{iter_call});
 
-    var run = try runCompileTimeProc(vm, call, def.name);
+    var run = try runCompileTimeProc(vm, call, def.name, env);
     defer run.vm.deinit();
     const decoded = try decodeProcResult(&run.vm, allocator, span, run.result);
     return expandInEnv(vm, allocator, decoded, env, .expand);
@@ -250,7 +308,7 @@ const ProcRun = struct {
     result: Data,
 };
 
-fn runCompileTimeProc(parent_vm: *revo.VM, root: *Node, proc_name: []const u8) ExpandError!ProcRun {
+fn runCompileTimeProc(parent_vm: *revo.VM, root: *Node, proc_name: []const u8, env: *ProcEnv) ExpandError!ProcRun {
     var vm = revo.VM.init(parent_vm.runtime) catch return error.ProcCompileFailed;
     errdefer vm.deinit();
 
@@ -262,13 +320,12 @@ fn runCompileTimeProc(parent_vm: *revo.VM, root: *Node, proc_name: []const u8) E
     const artifact = switch (artifact_report) {
         .ok => |ok| ok,
         .err => |failure| {
-            renderProcFailure(
-                vm.runtime.alloc,
-                proc_name,
-                "compile",
-                root.span,
-                diagnostic.firstError(failure.report).?,
-            );
+            env.error_info = .{
+                .proc_name = proc_name,
+                .stage = "compile",
+                .span = root.span,
+                .message = try env.allocator.dupe(u8, diagnostic.firstError(failure.report).?),
+            };
             return error.ProcCompileFailed;
         },
     };
@@ -279,57 +336,20 @@ fn runCompileTimeProc(parent_vm: *revo.VM, root: *Node, proc_name: []const u8) E
     switch (result) {
         .ok => {},
         .err => |failure| {
-            const sp = diagnostic.primarySpan(failure.report);
-            renderProcFailure(
-                vm.runtime.alloc,
-                proc_name,
-                "runtime",
-                if (sp) |p| p.span else null,
-                diagnostic.firstError(failure.report).?,
-            );
+            env.error_info = .{
+                .proc_name = proc_name,
+                .stage = "runtime",
+                .span = root.span,
+                .message = try env.allocator.dupe(u8, diagnostic.firstError(failure.report).?),
+            };
             return error.ProcEvalFailed;
         },
     }
     return .{ .vm = vm, .result = vm.currentFiber().result };
 }
 
-fn renderProcFailure(
-    allocator: std.mem.Allocator,
-    proc_name: []const u8,
-    stage: []const u8,
-    span: ?Span,
-    message: []const u8,
-) void {
-    var buf = std.Io.Writer.Allocating.init(allocator);
-    defer buf.deinit();
-    var parts: [2]diagnostic.Part = undefined;
-    const slice = if (span) |s| blk: {
-        parts[0] = diagnostic.Part{ .@"error" = message };
-        parts[1] = .{ .span = .{ .span = s, .role = .primary } };
-        break :blk parts[0..2];
-    } else blk: {
-        parts[0] = diagnostic.Part{ .@"error" = message };
-        break :blk parts[0..1];
-    };
-    diagnostic.renderReport(allocator, &buf.writer, .{
-        .message = message,
-        .parts = slice,
-        .source_name = "<proc>",
-        .source = "",
-    }) catch {
-        std.debug.print("proc {s}: {s} error: {s}\n", .{ proc_name, stage, message });
-        return;
-    };
-    std.debug.print("proc {s}: {s} error\n{s}", .{ proc_name, stage, buf.written() });
-}
-
-fn reportProcExpandError(
-    allocator: std.mem.Allocator,
-    proc_name: []const u8,
-    span: Span,
-    err: ExpandError,
-) void {
-    // ct/rt failures already render in runCompileTimeProc
+fn reportProcExpandError(env: *ProcEnv, proc_name: []const u8, span: Span, err: ExpandError) void {
+    // ct/rt failures already stored in env by runCompileTimeProc
     if (err == error.ProcCompileFailed or err == error.ProcEvalFailed) return;
 
     const message = switch (err) {
@@ -338,7 +358,7 @@ fn reportProcExpandError(
         error.RecursiveProcMacro => "recursive proc macro expansion",
         else => @errorName(err),
     };
-    renderProcFailure(allocator, proc_name, "expand", span, message);
+    env.error_info = .{ .proc_name = proc_name, .stage = "expand", .span = span, .message = message };
 }
 
 fn decodeProcResult(vm: *revo.VM, allocator: std.mem.Allocator, span: Span, data: Data) ExpandError!*Node {

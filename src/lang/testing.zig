@@ -245,6 +245,7 @@ pub fn expectCompileError(source: []const u8, expected: lang.LowerErrorKind) !vo
                 defer lang.deinitError(alloc, failure);
                 try std.testing.expectEqual(expected, lower.kind);
             },
+            .expand => return error.ExpectedLowerFailure,
             .parse => return error.ExpectedLowerFailure,
         },
     }
@@ -271,6 +272,7 @@ pub fn expectCompileFailure(
         },
         .err => |failure| switch (failure) {
             .parse => return error.ExpectedLowerFailure,
+            .expand => return error.ExpectedLowerFailure,
             .lower => |lower| {
                 defer lang.deinitError(alloc, failure);
                 try std.testing.expectEqual(expected_kind, lower.kind);

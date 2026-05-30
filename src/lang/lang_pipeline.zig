@@ -21,9 +21,15 @@ pub fn build(vm: *VM, source: Source, opts: BuildOptions) !BuildResult {
             return .{ .err = .{ .parse = diag } };
         },
     };
-    const expanded = switch (try expandWithVm(vm, arena.allocator(), parsed)) {
+    const expand_result = expandWithVmSource(vm, arena.allocator(), parsed, source.name orelse "", source.text) catch |err| return err;
+    const expanded = switch (expand_result) {
         .ok => |ok| ok,
-        .err => |err| return err,
+        .proc_err => |report| {
+            var copied = try report.copy(vm.runtime.alloc);
+            copied.source_name = source.name;
+            copied.source = source.text;
+            return .{ .err = .{ .expand = .{ .report = copied } } };
+        },
     };
     const lower_result = try lower(vm, expanded, .{
         .install_debug_info = opts.install_debug_info,
@@ -64,14 +70,23 @@ pub const Expanded = struct {
     root: *Node,
 };
 
+pub const ExpandFailure = struct {
+    report: diagnostic.Report,
+};
+
 pub const Error = union(enum) {
     parse: parser.ParseFailure,
+    expand: ExpandFailure,
     lower: compiler.LowerFailure,
 };
 
 pub const ParseResult = Result(Parsed, parser.ParseFailure);
 pub const ExpandError = expander.ExpandError || proc.ExpandError;
 pub const ExpandResult = Result(Expanded, ExpandError);
+pub const ExpandWithVmResult = union(enum) {
+    ok: Expanded,
+    proc_err: diagnostic.Report,
+};
 pub const LowerResult = Result(Artifact, compiler.LowerFailure);
 pub const BuildResult = Result(Artifact, Error);
 
@@ -111,9 +126,18 @@ pub fn expand(allocator: std.mem.Allocator, parsed: Parsed) !ExpandResult {
 }
 
 pub fn expandWithVm(vm: *VM, allocator: std.mem.Allocator, parsed: Parsed) !ExpandResult {
-    const template_expanded = expander.expandExpr(allocator, parsed.root) catch |err| return .{ .err = err };
-    const proc_expanded = proc.expandExpr(vm, allocator, template_expanded) catch |err| return .{ .err = err };
-    const final = expander.expandExpr(allocator, proc_expanded) catch |err| return .{ .err = err };
+    const result = expandWithVmSource(vm, allocator, parsed, "", "") catch |err| return err;
+    return switch (result) {
+        .ok => |ok| .{ .ok = ok },
+        .proc_err => |report| .{ .err = .{ .expand = .{ .report = report } } },
+    };
+}
+
+pub fn expandWithVmSource(vm: *VM, allocator: std.mem.Allocator, parsed: Parsed, source_name: []const u8, source: []const u8) !ExpandWithVmResult {
+    const template_expanded = try expander.expandExpr(allocator, parsed.root);
+    const proc_result = try proc.expandExprWithSource(vm, allocator, template_expanded, source_name, source);
+    if (proc_result.error_report) |report| return .{ .proc_err = report };
+    const final = try expander.expandExpr(allocator, proc_result.root);
     return .{ .ok = .{ .root = final } };
 }
 
@@ -149,6 +173,9 @@ pub fn renderError(allocator: std.mem.Allocator, writer: *std.Io.Writer, source:
             report.source = source.text;
             break :blk diagnostic.renderReport(allocator, writer, report);
         },
+        .expand => |failure| blk: {
+            break :blk diagnostic.renderReport(allocator, writer, failure.report);
+        },
         .lower => |failure| blk: {
             var report = failure.report;
             report.source_name = report.source_name orelse source.name;
@@ -161,6 +188,7 @@ pub fn renderError(allocator: std.mem.Allocator, writer: *std.Io.Writer, source:
 pub fn deinitError(alloc: std.mem.Allocator, err: Error) void {
     switch (err) {
         .parse => |failure| failure.report.deinitOwned(alloc),
+        .expand => |failure| failure.report.deinitOwned(alloc),
         .lower => |failure| failure.report.deinitOwned(alloc),
     }
 }

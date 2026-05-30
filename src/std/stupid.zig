@@ -67,6 +67,7 @@ pub fn build(args: []const Data, vm: *VM) !NativeResult {
                 defer revo.lang.deinitError(vm.runtime.alloc, err);
                 return root.resultTuple(vm, .err, try vm.ownDataString(revo.lang.diagnostic.firstError(e.report).?));
             },
+            .expand => |e| return root.resultTuple(vm, .err, try vm.ownDataString(revo.lang.diagnostic.firstError(e.report).?)),
             .parse => |e| return root.resultTuple(vm, .err, try vm.ownDataString(revo.lang.diagnostic.firstError(e.report).?)),
         },
     }
