@@ -16,6 +16,7 @@ pub fn runModuleReport(vm: *revo.VM, source_path: []const u8, source: []const u8
         .ok => |ok| ok,
         .err => |lang_err| {
             revo.printBuildError(vm.runtime.alloc, .{ .name = source_path, .text = source }, lang_err);
+            vm.runtime.resetDiagArena();
             return error.ParseError;
         },
     };

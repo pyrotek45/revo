@@ -82,7 +82,7 @@ pub fn lowerExprArtifactReport(
     compiler.compileRoot(expr) catch |err| switch (err) {
         error.LoweringFailed => {
             const failure = compiler.failure orelse return error.LoweringFailed;
-            const report = try failure.report.copy(compiler.runtime_alloc);
+            const report = try failure.report.copy(vm.runtime.diag_alloc);
             return .{ .err = .{
                 .kind = failure.kind,
                 .report = report,
@@ -162,7 +162,6 @@ pub const Compiler = struct {
     }
 
     pub fn deinit(self: *Compiler) void {
-        if (self.failure) |failure| failure.deinit(self.runtime_alloc);
         if (self.failure_message_owned) self.runtime_alloc.free(self.failure_message);
         for (self.functions.items) |*s| s.deinit(self.alloc);
         self.functions.deinit(self.alloc);
@@ -985,18 +984,42 @@ pub const Compiler = struct {
                             sig.param_names,
                             expected_types_all,
                         );
+                        const label = if (sig.param_names[i].len == 0)
+                            try std.fmt.allocPrint(
+                                self.alloc,
+                                "argument {d}",
+                                .{i + 1},
+                            )
+                        else
+                            try std.fmt.allocPrint(
+                                self.alloc,
+                                "argument {d} (`{s}`)",
+                                .{ i + 1, sig.param_names[i] },
+                            );
 
-                        const headline = try std.fmt.allocPrint(
-                            self.alloc,
-                            "argument {d} (`{s}`) to `{s}` expects {s}, got {s}",
-                            .{
-                                i + 1,
-                                sig.param_names[i],
-                                fn_name,
-                                expected_type,
-                                types.typeName(actual_type),
-                            },
-                        );
+                        const headline = if (sig.param_names[i].len == 0)
+                            try std.fmt.allocPrint(
+                                self.alloc,
+                                "argument {d} to `{s}` expects {s}, got {s}",
+                                .{
+                                    i + 1,
+                                    fn_name,
+                                    expected_type,
+                                    types.typeName(actual_type),
+                                },
+                            )
+                        else
+                            try std.fmt.allocPrint(
+                                self.alloc,
+                                "argument {d} (`{s}`) to `{s}` expects {s}, got {s}",
+                                .{
+                                    i + 1,
+                                    sig.param_names[i],
+                                    fn_name,
+                                    expected_type,
+                                    types.typeName(actual_type),
+                                },
+                            );
                         var extra_parts = try std.ArrayList(diagnostic.Part).initCapacity(
                             self.alloc,
                             2,
@@ -1009,7 +1032,7 @@ pub const Compiler = struct {
                             .{
                                 .span = reordered_args[i].span,
                                 .role = .primary,
-                                .message = "wrong type!",
+                                .message = label,
                             },
                             headline,
                             extra_parts.items,
@@ -1211,8 +1234,6 @@ pub const Compiler = struct {
                     .message = msg,
                     .source_name = eval_failure.report.source_name,
                     .source = eval_failure.report.source,
-                    .owned_message = true,
-                    .owned_parts = true,
                 },
             };
             return error.LoweringFailed;
@@ -1440,7 +1461,7 @@ pub const Compiler = struct {
         });
     }
 
-    fn setFailureParts(
+    pub fn setFailureParts(
         self: *Compiler,
         kind: LowerErrorKind,
         primary_span: ?diagnostic.SpanPart,
@@ -1484,7 +1505,16 @@ pub const Compiler = struct {
                     "return type mismatch: wanted {s}, got {s}",
                     .{ declared, typeStr(actual) },
                 );
-                return self.fail(.ParseError, val, msg);
+                return self.setFailureParts(
+                    .ParseError,
+                    .{
+                        .span = val.span,
+                        .role = .primary,
+                        .message = "return value",
+                    },
+                    msg,
+                    &.{},
+                );
             },
         };
     }
@@ -1508,7 +1538,16 @@ pub const Compiler = struct {
                     "return type mismatch: wanted {s}, got {s}",
                     .{ declared, typeStr(actual) },
                 );
-                return self.fail(.ParseError, last_expr, msg);
+                return self.setFailureParts(
+                    .ParseError,
+                    .{
+                        .span = last_expr.span,
+                        .role = .primary,
+                        .message = "return value",
+                    },
+                    msg,
+                    &.{},
+                );
             },
         };
     }

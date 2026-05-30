@@ -32,17 +32,16 @@ pub const Color = enum {
 };
 
 /// https://no-color.org/, https://bixense.com/clicolors/
-pub fn isColorSupported(env: std.process.Environ.Map) bool {
+pub fn isColorSupported(env: *std.process.Environ.Map, io: std.Io) bool {
     if (env.contains("NO_COLOR")) return false;
     if (env.contains("CLICOLOR_FORCE")) return true;
     if (env.contains("FORCE_COLOR")) return true;
 
     const stdout = std.Io.File.stdout();
-    if (!stdout.isTty()) return false;
+    const is_tty = stdout.isTty(io) catch return false;
+    if (!is_tty) return false;
 
-    if (std.process.hasEnvVarConstant("TERM")) {
-        const term = std.process.getEnvVar(std.heap.page_allocator, "TERM") catch return false;
-        defer std.heap.page_allocator.free(term);
+    if (env.get("TERM")) |term| {
         if (std.mem.eql(u8, term, "dumb")) return false;
     }
 
@@ -121,6 +120,27 @@ pub const base16 = [16][]const u8{
     "#ab4642", "#dc9656", "#f7ca88", "#a1b56c",
     "#86c1b9", "#7cafc2", "#ba8baf", "#a16946",
 };
+
+fn hexNibble(comptime ch: u8) u8 {
+    return switch (ch) {
+        '0'...'9' => ch - '0',
+        'a'...'f' => ch - 'a' + 10,
+        'A'...'F' => ch - 'A' + 10,
+        else => 0,
+    };
+}
+
+fn hexByte(comptime hex: []const u8) u8 {
+    return @as(u8, hexNibble(hex[0]) * 16 + hexNibble(hex[1]));
+}
+
+pub fn base16Color(comptime n: usize) []const u8 {
+    const hex = base16[n];
+    return comptime std.fmt.comptimePrint(
+        "\x1b[38;2;{d};{d};{d}m",
+        .{ hexByte(hex[1..3]), hexByte(hex[3..5]), hexByte(hex[5..7]) },
+    );
+}
 
 pub fn replStyleDefBase16(styleName: []const u8) [:0]const u8 {
     if (std.mem.eql(u8, styleName, "keyword")) return "color=" ++ base16[14] ++ " bold";

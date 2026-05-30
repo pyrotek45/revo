@@ -81,7 +81,7 @@ pub fn parseTokensReport(alloc: std.mem.Allocator, tokens: []const Token) anyerr
             parts[1] = .{ .span = .{ .span = token.span(), .role = .primary } };
             return .{ .err = .{
                 .kind = .UnexpectedToken,
-                .report = .{ .parts = parts, .message = "unexpected token", .owned_parts = true },
+                .report = .{ .parts = parts, .message = "unexpected token" },
             } };
         },
         error.ExpectedIdentifier => {
@@ -91,7 +91,7 @@ pub fn parseTokensReport(alloc: std.mem.Allocator, tokens: []const Token) anyerr
             parts[1] = .{ .span = .{ .span = token.span(), .role = .primary } };
             return .{ .err = .{
                 .kind = .ExpectedIdentifier,
-                .report = .{ .parts = parts, .message = "expected identifier", .owned_parts = true },
+                .report = .{ .parts = parts, .message = "expected identifier" },
             } };
         },
         error.ExpectedMatchArm => {
@@ -101,7 +101,7 @@ pub fn parseTokensReport(alloc: std.mem.Allocator, tokens: []const Token) anyerr
             parts[1] = .{ .span = .{ .span = token.span(), .role = .primary } };
             return .{ .err = .{
                 .kind = .ExpectedMatchArm,
-                .report = .{ .parts = parts, .message = "match expression requires at least one arm", .owned_parts = true },
+                .report = .{ .parts = parts, .message = "match expression requires at least one arm" },
             } };
         },
         else => return err,

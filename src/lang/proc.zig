@@ -58,7 +58,6 @@ fn buildReport(allocator: std.mem.Allocator, source_name: []const u8, source: []
         .parts = try allocator.dupe(diagnostic.Part, slice),
         .source_name = report_source_name,
         .source = source,
-        .owned_parts = true,
     };
 }
 

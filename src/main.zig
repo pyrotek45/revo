@@ -55,6 +55,8 @@ const Config = struct {
 };
 
 pub fn main(init: std.process.Init) void {
+    pretty.supports_color = pretty.isColorSupported(init.environ_map, init.io);
+
     runMain(init) catch |x| switch (x) {
         error.VmInitError,
         error.InsufficientArgs,
@@ -230,6 +232,7 @@ fn compileSource(init: std.process.Init, vm: *VM, gpa: Allocator, source_name: [
         .ok => |art| art,
         .err => |lang_err| {
             handleBuildError(init, gpa, source_name, source_text, lang_err);
+            vm.runtime.resetDiagArena();
             return error.CompilationError;
         },
     };
@@ -256,7 +259,10 @@ fn runCompiledArtifact(
     const run_result = try revo.module.runCompiledModuleReport(vm, name, artifact.instructions);
     switch (run_result) {
         .ok => if (echo_last) try printResult(vm),
-        .err => |failure| revo.printEvalError(gpa, source, failure),
+        .err => |failure| {
+            revo.printEvalError(gpa, source, failure);
+            vm.runtime.resetDiagArena();
+        },
     }
 }
 
@@ -431,13 +437,17 @@ fn benchArtifact(
         if (run_result == .err) {
             const failure = run_result.err;
             printRuntimeFailure(init, failure, source);
+            vm.runtime.resetDiagArena();
         }
     }
 
     const run_result = try revo.module.runCompiledModuleReport(vm, name, artifact.instructions);
     switch (run_result) {
         .ok => if (echo_last) try printResult(vm),
-        .err => |failure| printRuntimeFailure(init, failure, source),
+        .err => |failure| {
+            printRuntimeFailure(init, failure, source);
+            vm.runtime.resetDiagArena();
+        },
     }
 
     revo.vm.debug.printBenchStats(times.items);

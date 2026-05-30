@@ -197,27 +197,32 @@ const MarkItem = union(enum) {
 };
 
 pub fn init(runtime: revo.Runtime) !VM {
+    var rt = runtime;
+    rt.diag_arena = null;
+    rt.diag_alloc = undefined;
+    try rt.ensureDiagArena();
+    errdefer rt.deinitDiagArena();
     var vm: VM = .{
-        .runtime = runtime,
-        .sched = try Scheduler.init(runtime.alloc),
-        .constants = try std.ArrayList(Data).initCapacity(runtime.alloc, 16),
-        .stdlib_globals = Globals.init(runtime.alloc),
-        .tables = try TablePool.init(runtime.alloc),
-        .tuples = try TuplePool.init(runtime.alloc),
-        .functions = try FunctionPool.init(runtime.alloc),
-        .struct_types = struct_mod.StructTypePool.init(runtime.alloc),
-        .struct_instances = try struct_mod.StructInstancePool.init(runtime.alloc),
-        .strings = try Interner.init(runtime.alloc),
-        .atoms = std.StringHashMap(mem.AtomID).init(runtime.alloc),
-        .module_cache = ModuleCache.init(runtime.alloc),
-        .package_path = try std.ArrayList([]const u8).initCapacity(runtime.alloc, 4),
-        .debug_infos = try std.ArrayList(DebugInfo).initCapacity(runtime.alloc, 8),
-        .globals = Globals.init(runtime.alloc),
-        .const_globals = ConstGlobals.init(runtime.alloc),
+        .runtime = rt,
+        .sched = try Scheduler.init(rt.alloc),
+        .constants = try std.ArrayList(Data).initCapacity(rt.alloc, 16),
+        .stdlib_globals = Globals.init(rt.alloc),
+        .tables = try TablePool.init(rt.alloc),
+        .tuples = try TuplePool.init(rt.alloc),
+        .functions = try FunctionPool.init(rt.alloc),
+        .struct_types = struct_mod.StructTypePool.init(rt.alloc),
+        .struct_instances = try struct_mod.StructInstancePool.init(rt.alloc),
+        .strings = try Interner.init(rt.alloc),
+        .atoms = std.StringHashMap(mem.AtomID).init(rt.alloc),
+        .module_cache = ModuleCache.init(rt.alloc),
+        .package_path = try std.ArrayList([]const u8).initCapacity(rt.alloc, 4),
+        .debug_infos = try std.ArrayList(DebugInfo).initCapacity(rt.alloc, 8),
+        .globals = Globals.init(rt.alloc),
+        .const_globals = ConstGlobals.init(rt.alloc),
         .module_dir = null,
-        .loading_stack = try std.ArrayList([]const u8).initCapacity(runtime.alloc, 1),
-        .loaded_extensions = try .initCapacity(runtime.alloc, 0),
-        .gc_mark_stack = try std.ArrayList(MarkItem).initCapacity(runtime.alloc, 256),
+        .loading_stack = try std.ArrayList([]const u8).initCapacity(rt.alloc, 1),
+        .loaded_extensions = try .initCapacity(rt.alloc, 0),
+        .gc_mark_stack = try std.ArrayList(MarkItem).initCapacity(rt.alloc, 256),
         .gc_sweep_state = .{},
     };
     try revo.async_backend_impl.init(&vm.runtime.async_backend);
@@ -233,9 +238,9 @@ pub fn init(runtime: revo.Runtime) !VM {
         };
     }
 
-    try vm.package_path.appendSlice(runtime.alloc, &.{ "./?", "./lib/?", "/usr/local/lib/revo/?" });
+    try vm.package_path.appendSlice(rt.alloc, &.{ "./?", "./lib/?", "/usr/local/lib/revo/?" });
 
-    try vm.sched.fibers.append(runtime.alloc, .{
+    try vm.sched.fibers.append(rt.alloc, .{
         .id = 0,
         .pc = 0,
         .program = &.{},
@@ -356,6 +361,7 @@ pub fn deinit(self: *VM) void {
     }
     self.loaded_extensions.deinit(self.runtime.alloc);
     self.gc_mark_stack.deinit(self.runtime.alloc);
+    self.runtime.deinitDiagArena();
 }
 
 pub fn moduleStamp(self: *VM, path: []const u8) !ModuleStamp {
@@ -981,8 +987,6 @@ pub fn evalFailure(self: *VM, err: EvalError) EvalFailure {
         failure.parts[2 + idx] = .{ .trace = frame };
     }
     failure.report.parts = failure.parts[0..failure.part_len];
-    failure.report.owned_message = false;
-    failure.report.owned_parts = false;
     return failure;
 }
 

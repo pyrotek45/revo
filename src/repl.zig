@@ -245,6 +245,7 @@ pub const Session = struct {
 
     pub fn step(self: *Session, out: *std.Io.Writer, raw_line: []const u8) !bool {
         const line = std.mem.trim(u8, raw_line, " \t\r\n");
+        defer self.vm.runtime.resetDiagArena();
 
         if (line.len == 0) return true;
         if (std.mem.eql(u8, line, ":q") or std.mem.eql(u8, line, ":quit")) return false;

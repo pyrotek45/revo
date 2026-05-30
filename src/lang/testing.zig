@@ -9,6 +9,8 @@ pub fn runtime() revo.Runtime {
     return .{
         .alloc = alloc,
         .io = io,
+        .diag_alloc = undefined,
+        .diag_arena = null,
     };
 }
 
@@ -44,6 +46,7 @@ fn compileChecked(vm: *revo.VM, source: []const u8) ![]revo.Instruction {
         },
         .err => |lang_err| {
             printLangError(source, lang_err);
+            vm.runtime.resetDiagArena();
             return error.LangFailure;
         },
     };
@@ -61,6 +64,7 @@ fn compileCheckedMode(vm: *revo.VM, source: []const u8, test_mode: bool) ![]revo
         },
         .err => |lang_err| {
             printLangError(source, lang_err);
+            vm.runtime.resetDiagArena();
             return error.LangFailure;
         },
     };
@@ -72,6 +76,7 @@ fn runTopModuleChecked(vm: *revo.VM, source: []const u8, source_name: []const u8
         .ok => {},
         .err => |failure| {
             printRuntimeFailure(source, failure);
+            vm.runtime.resetDiagArena();
             return error.RuntimeFailure;
         },
     }
@@ -244,6 +249,7 @@ pub fn expectCompileError(source: []const u8, expected: lang.LowerErrorKind) !vo
             .lower => |lower| {
                 defer lang.deinitError(alloc, failure);
                 try std.testing.expectEqual(expected, lower.kind);
+                vm.runtime.resetDiagArena();
             },
             .expand => return error.ExpectedLowerFailure,
             .parse => return error.ExpectedLowerFailure,
@@ -281,6 +287,7 @@ pub fn expectCompileFailure(
                 try std.testing.expectEqual(expected_line, span.span.line);
                 try std.testing.expectEqual(expected_column, span.span.column);
                 try std.testing.expectEqualStrings(expected_message, msg);
+                vm.runtime.resetDiagArena();
             },
         },
     }

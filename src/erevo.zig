@@ -126,10 +126,12 @@ fn compileProgram(vm: *VM, name: []const u8, source: []const u8) ?*Program {
             revo.lang.renderError(vm.alloc, &buf.writer, .{ .name = name, .text = source }, failure) catch {
                 setError(vm, "compile error");
                 revo.lang.deinitError(vm.alloc, failure);
+                vm.runtime.resetDiagArena();
                 break :blk null;
             };
             setError(vm, buf.written());
             revo.lang.deinitError(vm.alloc, failure);
+            vm.runtime.resetDiagArena();
             break :blk null;
         },
     };
@@ -178,9 +180,11 @@ fn runProgram(vm: *VM, program: *Program, out_value: ?*ErevoData) bool {
             defer buf.deinit();
             failure.render(vm.alloc, &buf.writer, program.source) catch {
                 setError(vm, "runtime error");
+                vm.runtime.resetDiagArena();
                 break :blk false;
             };
             setError(vm, buf.written());
+            vm.runtime.resetDiagArena();
             break :blk false;
         },
     };

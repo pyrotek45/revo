@@ -17,7 +17,7 @@ pub fn build(vm: *VM, source: Source, opts: BuildOptions) !BuildResult {
         .err => |failure| {
             var diag = failure;
             if (source.name) |name| diag.report.source_name = name;
-            diag.report = try diag.report.copy(vm.runtime.alloc);
+            diag.report = try diag.report.copy(vm.runtime.diag_alloc);
             return .{ .err = .{ .parse = diag } };
         },
     };
@@ -25,7 +25,7 @@ pub fn build(vm: *VM, source: Source, opts: BuildOptions) !BuildResult {
     const expanded = switch (expand_result) {
         .ok => |ok| ok,
         .proc_err => |report| {
-            var copied = try report.copy(vm.runtime.alloc);
+            var copied = try report.copy(vm.runtime.diag_alloc);
             copied.source_name = source.name;
             copied.source = source.text;
             return .{ .err = .{ .expand = .{ .report = copied } } };
@@ -186,11 +186,8 @@ pub fn renderError(allocator: std.mem.Allocator, writer: *std.Io.Writer, source:
 }
 
 pub fn deinitError(alloc: std.mem.Allocator, err: Error) void {
-    switch (err) {
-        .parse => |failure| failure.report.deinitOwned(alloc),
-        .expand => |failure| failure.report.deinitOwned(alloc),
-        .lower => |failure| failure.report.deinitOwned(alloc),
-    }
+    _ = alloc;
+    _ = err;
 }
 
 pub fn parseSource(allocator: std.mem.Allocator, source: []const u8) !*Node {
@@ -224,7 +221,7 @@ pub fn parseSourceReport(allocator: std.mem.Allocator, source: []const u8) !pars
             parts[1] = .{ .span = .{ .span = failure.span, .role = .primary } };
             return .{ .err = .{
                 .kind = kind,
-                .report = .{ .parts = parts, .message = failure.message, .owned_parts = true },
+                .report = .{ .parts = parts, .message = failure.message },
             } };
         },
     };

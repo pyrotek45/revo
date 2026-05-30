@@ -11,6 +11,7 @@ pub fn run(vm: *vm_mod.VM) !void {
         .err => |failure| {
             if (vm.currentDebugSource()) |source| {
                 revo.printEvalError(vm.runtime.alloc, source, failure);
+                vm.runtime.resetDiagArena();
             } else {
                 std.debug.print(
                     "error: {s}\n",

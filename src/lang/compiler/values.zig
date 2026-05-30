@@ -33,10 +33,24 @@ pub fn compileLocalBinding(
                 const actual = type_check.inferExprType(self, value);
                 const msg = try std.fmt.allocPrint(
                     self.alloc,
-                    "binding `{s}` expects {s}, got {s}",
+                    "`{s}` wants {s}, got {s}",
                     .{ name, tn, types_mod.typeName(actual) },
                 );
-                return self.fail(.ParseError, value, msg);
+                const label = try std.fmt.allocPrint(
+                    self.alloc,
+                    "not {s}!",
+                    .{tn},
+                );
+                return self.setFailureParts(
+                    .ParseError,
+                    .{
+                        .span = value.span,
+                        .role = .primary,
+                        .message = label,
+                    },
+                    msg,
+                    &.{},
+                );
             },
         };
     }
@@ -257,15 +271,29 @@ fn compileAssignSimple(
                             } else types_mod.TypeInfo.any;
                             const msg = try std.fmt.allocPrint(
                                 self.alloc,
-                                "field `{s}` on `{s}` expects {s}, got {s}",
+                                "`{s}[{s}]` wants {s}, got {s}",
                                 .{
-                                    field.name,
                                     type_name,
+                                    field.name,
                                     types_mod.typeName(expected),
                                     types_mod.typeName(actual),
                                 },
                             );
-                            return self.fail(.ParseError, value, msg);
+                            const label = try std.fmt.allocPrint(
+                                self.alloc,
+                                "field `{s}` on `{s}`",
+                                .{ field.name, type_name },
+                            );
+                            return self.setFailureParts(
+                                .ParseError,
+                                .{
+                                    .span = value.span,
+                                    .role = .primary,
+                                    .message = label,
+                                },
+                                msg,
+                                &.{},
+                            );
                         },
                     };
                     try self.compile(field.object, true);
@@ -298,7 +326,7 @@ fn compileAssignSimple(
         else => {
             const msg = try std.fmt.allocPrint(
                 self.alloc,
-                "invalid assignment target: {}",
+                "bad assignment target: {}",
                 .{target.*},
             );
             return self.fail(.InvalidAssignmentTarget, target, msg);

@@ -1812,6 +1812,34 @@ test "tuple binding mismatch reports item counts" {
     );
 }
 
+test "typed binding label names the expected type" {
+    var vm = try VM.init(t.runtime());
+    defer vm.deinit();
+
+    const result = try lang.build(&vm, .{
+        .text =
+        \\ const x: int = "nope"
+        ,
+    }, .{ .install_debug_info = false });
+
+    switch (result) {
+        .ok => return error.ExpectedCompileFailure,
+        .err => |failure| switch (failure) {
+            .lower => |lower| {
+                defer lang.deinitError(alloc, failure);
+                const primary = lang.diagnostic.primarySpan(lower.report).?;
+                try std.testing.expectEqualStrings("not int!", primary.message);
+                try std.testing.expectEqualStrings(
+                    "`x` wants int, got string",
+                    lang.diagnostic.firstError(lower.report).?,
+                );
+                vm.runtime.resetDiagArena();
+            },
+            else => return error.ExpectedLowerFailure,
+        },
+    }
+}
+
 //
 // fn semantics
 //

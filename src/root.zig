@@ -16,12 +16,19 @@ pub const Runtime = struct {
     vm: ?*VM = null,
     async_backend: async_backend_impl.BackendState = .{},
 
+    /// allocator for diagnostic reports (usually an arena)
+    diag_alloc: std.mem.Allocator = undefined,
+    /// arena backing diag_alloc; null when not arena-backed
+    diag_arena: ?*std.heap.ArenaAllocator = null,
+
     /// ret: a new runtime with its own vm
     pub fn init(alloc: std.mem.Allocator, io: std.Io, argv: []const [:0]const u8) !Runtime {
         var rt: Runtime = .{
             .alloc = alloc,
             .io = io,
             .argv = argv,
+            .diag_alloc = undefined,
+            .diag_arena = null,
         };
 
         const vm_ptr = try alloc.create(VM);
@@ -31,8 +38,33 @@ pub const Runtime = struct {
             .io = io,
             .argv = argv,
         });
+        rt.diag_alloc = vm_ptr.runtime.diag_alloc;
         rt.vm = vm_ptr;
         return rt;
+    }
+
+    pub fn diagAlloc(self: *const Runtime) std.mem.Allocator {
+        return self.diag_alloc;
+    }
+
+    pub fn ensureDiagArena(self: *Runtime) !void {
+        if (self.diag_arena != null) return;
+        const diag_arena = try self.alloc.create(std.heap.ArenaAllocator);
+        errdefer {
+            diag_arena.deinit();
+            self.alloc.destroy(diag_arena);
+        }
+        diag_arena.* = std.heap.ArenaAllocator.init(self.alloc);
+        self.diag_arena = diag_arena;
+        self.diag_alloc = diag_arena.allocator();
+    }
+
+    pub fn deinitDiagArena(self: *Runtime) void {
+        if (self.diag_arena) |arena| {
+            arena.deinit();
+            self.alloc.destroy(arena);
+            self.diag_arena = null;
+        }
     }
 
     /// deinit runtime and free vm
@@ -40,6 +72,13 @@ pub const Runtime = struct {
         if (self.vm) |vm_ptr| {
             vm_ptr.deinit();
             self.alloc.destroy(vm_ptr);
+        }
+        self.deinitDiagArena();
+    }
+
+    pub fn resetDiagArena(self: *Runtime) void {
+        if (self.diag_arena) |arena| {
+            _ = arena.reset(.{ .retain_with_limit = 4096 });
         }
     }
 
@@ -89,6 +128,7 @@ pub const Runtime = struct {
             .ok => |art| art,
             .err => |err| {
                 printBuildError(self.alloc, .{ .name = name, .text = source }, err);
+                self.resetDiagArena();
                 return error.CompilationError;
             },
         };
