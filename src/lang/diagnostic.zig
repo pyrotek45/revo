@@ -289,7 +289,8 @@ fn writeLineNumber(writer: *std.Io.Writer, num: u32, width: usize) !void {
     if (width > digits) {
         for (0..width - digits) |_| try writer.writeByte(' ');
     }
-    try writer.print("{d} |  ", .{num});
+    try writer.print("{d}", .{num});
+    try writePipePrefix(writer, 2);
 }
 
 fn writeDimStart(writer: *std.Io.Writer) !void {
@@ -302,6 +303,22 @@ fn writeDimEnd(writer: *std.Io.Writer) !void {
 
 fn writeBlankLineNumber(writer: *std.Io.Writer, width: usize) !void {
     for (0..width) |_| try writer.writeByte(' ');
+}
+
+fn writePipePrefix(writer: *std.Io.Writer, spaces_after_pipe: usize) !void {
+    try writer.writeByte(' ');
+    try writer.writeByte('|');
+    for (0..spaces_after_pipe) |_| try writer.writeByte(' ');
+}
+
+fn writeBoxPrefix(writer: *std.Io.Writer, line_width: usize, indent: usize) !void {
+    try writeBlankLineNumber(writer, line_width);
+    try writePipePrefix(writer, indent);
+}
+
+fn writeBlankPipeLine(writer: *std.Io.Writer, line_width: usize, indent: usize) !void {
+    try writeBoxPrefix(writer, line_width, indent);
+    try writer.writeByte('\n');
 }
 
 fn countSpanLines(source: []const u8, start: usize, end: usize) usize {
@@ -354,7 +371,8 @@ fn renderSpanBlock(
 
     try writer.print(" --> {s}:{d}:{d}\n", .{ source_name, start_line, start_column });
     try writeDimStart(writer);
-    try writer.writeAll("   |\n");
+    try writePipePrefix(writer, 0);
+    try writer.writeByte('\n');
     try writeDimEnd(writer);
 
     const clamped_start = @min(location.start, source.len);
@@ -464,8 +482,7 @@ fn renderSpanBlock(
         try writer.writeByte('\n');
     }
     if (ctx_before_len > 0) {
-        try writeBlankLineNumber(writer, line_width);
-        try writer.writeAll(" |\n");
+        try writeBlankPipeLine(writer, line_width, 0);
     }
 
     // render span lines: the source block itself and its edge markers
@@ -504,11 +521,11 @@ fn renderSpanBlock(
             const clamped = @min(span_here, cl.text.len -| (col - 1));
             const highlight = @max(clamped, 1);
             const pad = if (col > 2) col - 2 else 0;
-
-            const ul_bracket = if (is_first and is_last) "    " else if (is_last) "    " else " |  ";
+            const ul_bracket_spaces: usize = if (is_first and is_last) 2 else if (is_last) 2 else 2;
             try writeBlankLineNumber(writer, line_width);
-            try writer.writeAll(" |");
-            try writer.writeAll(ul_bracket);
+            try writer.writeByte(' ');
+            try writer.writeByte('|');
+            for (0..ul_bracket_spaces) |_| try writer.writeByte(' ');
             for (0..pad) |_| try writer.writeByte(' ');
             if (is_first and is_last) {
                 try writer.writeByte('^');
@@ -533,8 +550,7 @@ fn renderSpanBlock(
 
     // render ctx after: plain lines below the span
     if (ctx_after_len > 0) {
-        try writeBlankLineNumber(writer, line_width);
-        try writer.writeAll(" |\n");
+        try writeBlankPipeLine(writer, line_width, 0);
     }
     for (ctx_after[0..ctx_after_len]) |cl| {
         try writeLineNumber(writer, cl.num, line_width);
@@ -555,7 +571,8 @@ fn renderBoxSpanBlock(
 ) !void {
     try writer.print(" --> {s}:{d}:{d}\n", .{ source_name, start_line, start_column });
     try writeDimStart(writer);
-    try writer.writeAll("   |\n");
+    try writePipePrefix(writer, 0);
+    try writer.writeByte('\n');
     try writeDimEnd(writer);
 
     const clamped_start = @min(location.start, source.len);
@@ -664,8 +681,7 @@ fn renderBoxSpanBlock(
         try writeDimEnd(writer);
     }
     if (ctx_before_len > 0) {
-        try writeBlankLineNumber(writer, line_width);
-        try writer.writeAll(" |\n");
+        try writeBlankPipeLine(writer, line_width, 0);
     }
 
     const bookend_threshold = 10;
@@ -688,9 +704,9 @@ fn renderBoxSpanBlock(
     const first_line = lines_view[0];
     const last_line = lines_view[lines_view.len - 1];
     // gutter already takes two spaces, so offset from that baseline
-    const box_offset = display_trim -| 2;
+    const box_offset = display_trim -| 4;
     // marker rows sit one column further left than code rows
-    const marker_offset = display_trim -| 3;
+    const marker_offset = display_trim -| 5;
     const top_dashes = @max(@as(usize, 1), first_line.span_col -| display_trim);
     const top_vs = @max(
         @as(usize, 1),
@@ -698,8 +714,7 @@ fn renderBoxSpanBlock(
     );
     const bottom_dashes = @max(@as(usize, 1), (last_line.span_end -| last_line.span_start) -| display_trim);
     // top edge: box header and caret stem
-    try writeBlankLineNumber(writer, line_width);
-    try writer.writeAll(" |   ");
+    try writeBoxPrefix(writer, line_width, 3);
     for (0..marker_offset) |_| try writer.writeByte(' ');
     try writer.writeByte('+');
     for (0..top_dashes) |_| try writer.writeByte('-');
@@ -713,8 +728,7 @@ fn renderBoxSpanBlock(
             if (!bookend_printed) {
                 // middle collapse: dimmed summary for skipped rows
                 try writeDimStart(writer);
-                try writeBlankLineNumber(writer, line_width);
-                try writer.writeAll(" |   ");
+                try writeBoxPrefix(writer, line_width, 3);
                 for (0..marker_offset) |_| try writer.writeByte(' ');
                 try writer.writeAll("...");
                 try writer.print(" {d} lines ", .{total - tail_cut - (total - tail_start)});
@@ -734,8 +748,7 @@ fn renderBoxSpanBlock(
     }
 
     // bottom edge: close the box under the final source row
-    try writeBlankLineNumber(writer, line_width);
-    try writer.writeAll(" |   ");
+    try writeBoxPrefix(writer, line_width, 3);
     for (0..marker_offset) |_| try writer.writeByte(' ');
     try writer.writeByte('+');
     for (0..bottom_dashes) |_| try writer.writeByte('-');
@@ -744,8 +757,7 @@ fn renderBoxSpanBlock(
     try writer.writeByte('\n');
 
     if (ctx_after_len > 0) {
-        try writeBlankLineNumber(writer, line_width);
-        try writer.writeAll(" |\n");
+        try writeBlankPipeLine(writer, line_width, 0);
     }
     for (ctx_after[0..ctx_after_len]) |cl| {
         try writeDimStart(writer);
@@ -802,4 +814,72 @@ test "multi-line span with bracket" {
     try std.testing.expect(std.mem.indexOf(u8, output, "+-^") != null);
     try std.testing.expect(std.mem.indexOf(u8, output, "x wants string, got int") != null);
     try std.testing.expect(std.mem.indexOf(u8, output, "after") != null);
+}
+
+test "report copy preserves multiple error parts" {
+    const alloc = std.testing.allocator;
+    const report: Report = .{
+        .message = "first problem",
+        .parts = &.{
+            .{ .@"error" = "first problem" },
+            .{ .@"error" = "second problem" },
+            .{ .span = .{
+                .span = .{ .start = 0, .end = 1, .line = 1, .column = 1 },
+                .role = .primary,
+            } },
+        },
+    };
+
+    const copied = try report.copy(alloc);
+    defer {
+        alloc.free(copied.message);
+        for (copied.parts) |part| switch (part) {
+            .@"error" => |msg| alloc.free(msg),
+            .span => |span| {
+                if (span.message.len != 0) alloc.free(span.message);
+                if (span.source_name) |source_name| alloc.free(source_name);
+                if (span.source) |source| alloc.free(source);
+            },
+            .tip => |tip| alloc.free(tip),
+            .warn => |warn| alloc.free(warn),
+            .note => |note| alloc.free(note),
+            .trace => |trace| {
+                alloc.free(trace.function_name);
+                if (trace.source_name) |source_name| alloc.free(source_name);
+                if (trace.source) |source| alloc.free(source);
+            },
+        };
+        alloc.free(copied.parts);
+    }
+
+    try std.testing.expectEqualStrings("first problem", copied.message);
+    try std.testing.expectEqualStrings("first problem", copied.parts[0].@"error");
+    try std.testing.expectEqualStrings("second problem", copied.parts[1].@"error");
+}
+
+test "render report prints multiple error blocks" {
+    const alloc = std.testing.allocator;
+    var buf = std.Io.Writer.Allocating.init(alloc);
+    defer buf.deinit();
+
+    const report: Report = .{
+        .source_name = "<source>",
+        .source = "hi\n",
+        .parts = &.{
+            .{ .@"error" = "first problem" },
+            .{ .span = .{
+                .span = .{ .start = 0, .end = 2, .line = 1, .column = 1 },
+                .role = .primary,
+            } },
+            .{ .@"error" = "second problem" },
+            .{ .span = .{
+                .span = .{ .start = 0, .end = 2, .line = 1, .column = 1 },
+                .role = .primary,
+            } },
+        },
+    };
+
+    try renderReport(alloc, &buf.writer, report);
+    try std.testing.expect(std.mem.indexOf(u8, buf.written(), "first problem") != null);
+    try std.testing.expect(std.mem.indexOf(u8, buf.written(), "second problem") != null);
 }
