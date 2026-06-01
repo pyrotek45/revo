@@ -184,6 +184,13 @@ pub const Compiler = struct {
         self.arena.deinit();
     }
 
+    // ctx interface for types.zig
+    pub const inferIdentType = type_check.inferIdentType;
+    pub const resolveTypeName = type_check.resolveTypeName;
+    pub const inferCallReturnType = type_check.inferCallReturnType;
+    pub const inferFieldType = type_check.inferFieldType;
+    pub const inferFnType = type_check.inferFnType;
+
     pub fn finishArtifact(self: *Compiler) !Artifact {
         if (self.use_ir_first) {
             if (self.ir_ctx) |*ctx| {
@@ -497,16 +504,6 @@ pub const Compiler = struct {
             },
             .type_alias => |t| {
                 const type_info = type_check.evalTypeExpr(self, t.type_expr) catch |err| switch (err) {
-                    error.TypeError => return self.fail(
-                        .UnsupportedSyntax,
-                        t.type_expr,
-                        "invalid type expression",
-                    ),
-                    error.UnexpectedToken => return self.fail(
-                        .ParseError,
-                        t.type_expr,
-                        "unexpected token in type expression",
-                    ),
                     error.UnsupportedSyntax => return self.fail(
                         .UnsupportedSyntax,
                         t.type_expr,

@@ -169,6 +169,126 @@ pub fn inferUnaryOp(op: ast.UnOp, T: TypeInfo) TypeInfo {
     };
 }
 
+pub fn inferIfType(then_type: TypeInfo, else_type: ?TypeInfo) TypeInfo {
+    if (else_type) |et| {
+        if (then_type.eql(et)) return then_type;
+        if (then_type == .any) return et;
+        if (et == .any) return then_type;
+        return .any;
+    }
+    if (then_type == .void) return .void;
+    return .any;
+}
+
+pub fn inferOrelseType(left: TypeInfo, right: TypeInfo) TypeInfo {
+    if (left == .any) return right;
+    if (right == .any) return left;
+    if (left.eql(right)) return left;
+    return .any;
+}
+
+pub fn collectVariants(alloc: std.mem.Allocator, ti: TypeInfo, variants: *std.ArrayList(UnionVariant)) !void {
+    switch (ti) {
+        .@"union" => |us| for (us) |u| try variants.append(alloc, u),
+        .tuple => |types| try variants.append(alloc, .{ .name = "", .types = types }),
+        else => {
+            var one = try std.ArrayList(TypeInfo).initCapacity(alloc, 1);
+            errdefer one.deinit(alloc);
+            try one.append(alloc, ti);
+            try variants.append(alloc, .{ .name = "", .types = try one.toOwnedSlice(alloc) });
+        },
+    }
+}
+
+pub fn inferExprType(ctx: anytype, node: *const ast.Node) TypeInfo {
+    return switch (node.expr) {
+        .number => |n| if (n.is_float) .float else .int,
+        .string, .multiline_string => .string,
+        .hash => |name| .{ .atom = name },
+        .nil => .void,
+        .ident => |name| ctx.inferIdentType(name),
+        .unary => |u| inferUnaryOp(u.op, inferExprType(ctx, u.expr)),
+        .binary => |b| inferBinaryOp(b.op, inferExprType(ctx, b.left), inferExprType(ctx, b.right)),
+        .and_expr, .or_expr => .bool,
+        .if_expr => |v| inferIfType(inferExprType(ctx, v.then_expr), if (v.else_expr) |e| inferExprType(ctx, e) else null),
+        .tuple => |items| inferTupleType(ctx, items),
+        .table => .{ .struct_type = "table" },
+        .call => |call| ctx.inferCallReturnType(call.callee, @as([]const *ast.Node, call.args)),
+        .field => |field| ctx.inferFieldType(field.object, field.name),
+        .index => |index| inferIndexType(ctx, index.object, index.key),
+        .fn_expr => |fn_expr| ctx.inferFnType(fn_expr.params, fn_expr.return_type),
+        .block => |exprs| inferBlockResultType(ctx, exprs),
+        .return_expr => .void,
+        .loop_expr, .while_loop, .for_loop => .void,
+        .break_expr => .void,
+        .try_expr => |inner| inferExprType(ctx, inner),
+        .orelse_expr => |v| inferOrelseType(inferExprType(ctx, v.left), inferExprType(ctx, v.right)),
+        .comp_block, .import_expr, .test_block, .test_suite, .macro_expr, .proc_macro => .any,
+        .range_literal, .match_expr, .assign_expr => .any,
+        .decl, .binding => .void,
+        .tuple_pattern => .any,
+        .struct_def => |def| .{ .struct_type = def.name },
+        .type_alias => .void,
+    };
+}
+
+pub fn inferTupleType(ctx: anytype, items: []const *ast.Node) TypeInfo {
+    if (items.len == 0) return .{ .tuple = &.{} };
+    var types = std.ArrayList(TypeInfo).initCapacity(ctx.alloc, items.len) catch return .any;
+    defer types.deinit(ctx.alloc);
+    for (items) |item| types.append(ctx.alloc, inferExprType(ctx, item)) catch return .any;
+    return .{ .tuple = types.toOwnedSlice(ctx.alloc) catch return .any };
+}
+
+pub fn inferIndexType(ctx: anytype, object: *const ast.Node, key: *const ast.Node) TypeInfo {
+    return switch (inferExprType(ctx, object)) {
+        .tuple => |items| if (key.expr == .number) blk: {
+            const key_num = key.expr.number.value;
+            if (std.math.isFinite(key_num) and @floor(key_num) == key_num and key_num >= 0) {
+                const idx: usize = @intFromFloat(key_num);
+                if (object.expr == .tuple) {
+                    const tuple_items = object.expr.tuple;
+                    if (idx < tuple_items.len) break :blk inferExprType(ctx, tuple_items[idx]);
+                } else if (idx < items.len) {
+                    break :blk items[idx];
+                }
+            }
+            break :blk .any;
+        } else .any,
+        .string => .string,
+        else => .any,
+    };
+}
+
+pub fn inferBlockResultType(ctx: anytype, exprs: []const *ast.Node) TypeInfo {
+    if (exprs.len == 0) return .void;
+    return inferExprType(ctx, exprs[exprs.len - 1]);
+}
+
+pub fn evalTypeExpr(ctx: anytype, node: *const ast.Node) !TypeInfo {
+    return switch (node.expr) {
+        .ident => |name| ctx.resolveTypeName(name),
+        .hash => |name| TypeInfo{ .atom = name },
+        .tuple => |items| blk: {
+            var types = try std.ArrayList(TypeInfo).initCapacity(ctx.alloc, items.len);
+            errdefer types.deinit(ctx.alloc);
+            for (items) |item| try types.append(ctx.alloc, try evalTypeExpr(ctx, item));
+            break :blk TypeInfo{ .tuple = try types.toOwnedSlice(ctx.alloc) };
+        },
+        .binary => |b| switch (b.op) {
+            .@"union" => blk: {
+                var variants = try std.ArrayList(UnionVariant).initCapacity(ctx.alloc, 4);
+                errdefer variants.deinit(ctx.alloc);
+                try collectVariants(ctx.alloc, try evalTypeExpr(ctx, b.left), &variants);
+                try collectVariants(ctx.alloc, try evalTypeExpr(ctx, b.right), &variants);
+                break :blk TypeInfo{ .@"union" = try variants.toOwnedSlice(ctx.alloc) };
+            },
+            else => return error.UnsupportedSyntax,
+        },
+        else => return error.UnsupportedSyntax,
+    };
+}
+
 test "types: TypeInfo equality" {
     const int_type: revo.lang.compiler.types.TypeInfo = .int;
     const any_type: revo.lang.compiler.types.TypeInfo = .any;

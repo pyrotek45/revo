@@ -109,16 +109,24 @@ const SemanticChecker = struct {
     }
 
     fn lookup(self: *SemanticChecker, name: []const u8) ?types_mod.TypeInfo {
-        var i = self.scopes.items.len;
+        var i: usize = self.scopes.items.len;
         while (i > 0) {
             i -= 1;
-            if (self.scopes.items[i].values.get(name)) |t| return t;
+            if (self.scopes.items[i].values.get(name)) |v| return v;
         }
-        if (self.type_aliases.get(name)) |aliased| return aliased;
-        return null;
+        return self.type_aliases.get(name);
     }
 
-    fn resolveTypeName(self: *SemanticChecker, name: []const u8) types_mod.TypeInfo {
+    // ctx interface for types.zig
+    pub fn inferIdentType(self: *SemanticChecker, name: []const u8) types_mod.TypeInfo {
+        return self.lookup(name) orelse .any;
+    }
+
+    pub fn inferFnType(_: *SemanticChecker, _: []const ast.FnParam, _: ?[]const u8) types_mod.TypeInfo {
+        return .any;
+    }
+
+    pub fn resolveTypeName(self: *SemanticChecker, name: []const u8) types_mod.TypeInfo {
         if (std.mem.eql(u8, name, "int")) return .int;
         if (std.mem.eql(u8, name, "float")) return .float;
         if (std.mem.eql(u8, name, "number")) return .{
@@ -138,143 +146,38 @@ const SemanticChecker = struct {
     }
 
     fn evalTypeExpr(self: *SemanticChecker, node: *const ast.Node) !types_mod.TypeInfo {
-        return switch (node.expr) {
-            .ident => |name| self.resolveTypeName(name),
-            .hash => |name| .{ .atom = name },
-            .tuple => |items| blk: {
-                var types = try std.ArrayList(types_mod.TypeInfo).initCapacity(self.alloc, items.len);
-                errdefer types.deinit(self.alloc);
-                for (items) |item| try types.append(self.alloc, try self.evalTypeExpr(item));
-                break :blk .{ .tuple = try types.toOwnedSlice(self.alloc) };
-            },
-            .binary => |b| switch (b.op) {
-                .@"union" => blk: {
-                    var variants = try std.ArrayList(types_mod.UnionVariant).initCapacity(self.alloc, 4);
-                    errdefer variants.deinit(self.alloc);
-                    try self.collectVariants(try self.evalTypeExpr(b.left), &variants);
-                    try self.collectVariants(try self.evalTypeExpr(b.right), &variants);
-                    break :blk .{ .@"union" = try variants.toOwnedSlice(self.alloc) };
-                },
-                else => return error.UnsupportedSyntax,
-            },
-            else => return error.UnsupportedSyntax,
-        };
-    }
-
-    fn collectVariants(self: *SemanticChecker, ti: types_mod.TypeInfo, variants: *std.ArrayList(types_mod.UnionVariant)) !void {
-        switch (ti) {
-            .@"union" => |us| for (us) |u| try variants.append(self.alloc, u),
-            .tuple => |types| try variants.append(self.alloc, .{ .name = "", .types = types }),
-            else => {
-                var one = try std.ArrayList(types_mod.TypeInfo).initCapacity(self.alloc, 1);
-                defer one.deinit(self.alloc);
-                try one.append(self.alloc, ti);
-                try variants.append(self.alloc, .{ .name = "", .types = try one.toOwnedSlice(self.alloc) });
-            },
-        }
+        return try types_mod.evalTypeExpr(self, node);
     }
 
     fn inferExprType(self: *SemanticChecker, node: *const ast.Node) types_mod.TypeInfo {
         return switch (node.expr) {
-            .number => |n| if (n.is_float) .float else .int,
-            .string, .multiline_string => .string,
-            .hash => |name| .{ .atom = name },
-            .nil => .void,
-            .ident => |name| self.lookup(name) orelse .any,
-            .unary => |u| types_mod.inferUnaryOp(u.op, self.inferExprType(u.expr)),
-            .binary => |b| types_mod.inferBinaryOp(b.op, self.inferExprType(b.left), self.inferExprType(b.right)),
-            .and_expr, .or_expr => .bool,
-            .if_expr => |v| self.inferIfType(v),
-            .tuple => |items| self.inferTupleType(items),
-            .table => .{ .struct_type = "table" },
-            .call => |call| self.inferCallType(call),
-            .field => |field| self.inferFieldType(field),
-            .index => |index| self.inferIndexType(index),
-            .fn_expr => .any,
-            .block => |exprs| if (exprs.len == 0) .void else self.inferExprType(exprs[exprs.len - 1]),
-            .return_expr => .void,
-            .loop_expr, .while_loop, .for_loop => .void,
-            .break_expr => .void,
-            .try_expr => |inner| self.inferExprType(inner),
-            .orelse_expr => |v| self.inferOrelseType(v),
-            .comp_block, .import_expr, .test_block, .test_suite, .macro_expr, .proc_macro => .any,
-            .range_literal, .match_expr, .assign_expr => .any,
-            .decl, .binding => .void,
-            .tuple_pattern => .any,
             .struct_def => |def| .{ .struct_type = def.name },
             .type_alias => .void,
+            .fn_expr => .any,
+            else => types_mod.inferExprType(self, node),
         };
     }
 
-    fn inferOrelseType(self: *SemanticChecker, v: anytype) types_mod.TypeInfo {
-        const left = self.inferExprType(v.left);
-        const right = self.inferExprType(v.right);
-        if (left == .any) return right;
-        if (right == .any) return left;
-        if (left.eql(right)) return left;
-        return .any;
-    }
-
-    fn inferIfType(self: *SemanticChecker, v: anytype) types_mod.TypeInfo {
-        const then_type = self.inferExprType(v.then_expr);
-        if (v.else_expr) |else_expr| {
-            const else_type = self.inferExprType(else_expr);
-            if (then_type.eql(else_type)) return then_type;
-            if (then_type == .any) return else_type;
-            if (else_type == .any) return then_type;
-            return .any;
-        }
-        if (then_type == .void) return .void;
-        return .any;
-    }
-
-    fn inferTupleType(self: *SemanticChecker, items: []const *ast.Node) types_mod.TypeInfo {
-        if (items.len == 0) return .{ .tuple = &.{} };
-        var types = std.ArrayList(types_mod.TypeInfo).initCapacity(self.alloc, items.len) catch return .any;
-        defer types.deinit(self.alloc);
-        for (items) |item| types.append(self.alloc, self.inferExprType(item)) catch return .any;
-        return .{ .tuple = types.toOwnedSlice(self.alloc) catch return .any };
-    }
-
-    fn inferCallType(self: *SemanticChecker, call: anytype) types_mod.TypeInfo {
-        const callee_type = self.inferExprType(call.callee);
+    pub fn inferCallReturnType(self: *SemanticChecker, callee: *const ast.Node, args: []const *ast.Node) types_mod.TypeInfo {
+        _ = args;
+        const callee_type = self.inferExprType(callee);
         if (callee_type == .function) return callee_type.function.return_type;
-        if (call.callee.expr == .ident) {
-            if (self.lookup(call.callee.expr.ident)) |t| {
+        if (callee.expr == .ident) {
+            if (self.lookup(callee.expr.ident)) |t| {
                 if (t == .function) return t.function.return_type;
             }
         }
         return .any;
     }
 
-    fn inferFieldType(self: *SemanticChecker, field: anytype) types_mod.TypeInfo {
-        return switch (self.inferExprType(field.object)) {
-            .struct_type => |name| blk: {
-                const layout = self.struct_layouts.get(name) orelse break :blk .any;
-                for (layout) |f| if (std.mem.eql(u8, f.name, field.name)) break :blk if (f.field_type != .any) f.field_type else if (f.type_name) |tn| self.resolveTypeName(tn) else .any;
+    pub fn inferFieldType(self: *SemanticChecker, object: *const ast.Node, name: []const u8) types_mod.TypeInfo {
+        return switch (self.inferExprType(object)) {
+            .struct_type => |struct_name| blk: {
+                const layout = self.struct_layouts.get(struct_name) orelse break :blk .any;
+                for (layout) |f| if (std.mem.eql(u8, f.name, name)) break :blk if (f.field_type != .any) f.field_type else if (f.type_name) |tn| self.resolveTypeName(tn) else .any;
                 break :blk .any;
             },
-            .string => if (std.mem.eql(u8, field.name, "len")) .int else .any,
-            else => .any,
-        };
-    }
-
-    fn inferIndexType(self: *SemanticChecker, index: anytype) types_mod.TypeInfo {
-        return switch (self.inferExprType(index.object)) {
-            .tuple => |items| if (index.key.expr == .number) blk: {
-                const key_num = index.key.expr.number.value;
-                if (std.math.isFinite(key_num) and @floor(key_num) == key_num and key_num >= 0) {
-                    const idx: usize = @intFromFloat(key_num);
-                    if (index.object.expr == .tuple) {
-                        const tuple_items = index.object.expr.tuple;
-                        if (idx < tuple_items.len) break :blk self.inferExprType(tuple_items[idx]);
-                    } else if (idx < items.len) {
-                        break :blk items[idx];
-                    }
-                }
-                break :blk .any;
-            } else .any,
-            .string => .string,
+            .string => if (std.mem.eql(u8, name, "len")) .int else .any,
             else => .any,
         };
     }
