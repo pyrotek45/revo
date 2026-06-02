@@ -51,6 +51,22 @@ then open the logs via
 
 ## helix
 
+this is what i use
+```toml
+[[language]]
+name = "revo"
+file-types = ["rv"]
+comment-tokens = "#"
+indent = { tab-width = 2, unit = "  " }
+language-servers = [ "revolt" ]
+scope = "source.revo"
+
+[language-server.revolt]
+command = "revolt"
+```
+
+you might want to add a grammar entry for syntax highlighting
+
 ## supported features
 
 - [DONE] textDocument/didOpen
